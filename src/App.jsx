@@ -3026,15 +3026,37 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
 
 // ── Shared Root ──────────────────────────────────────────────────────────────
 export default function NoorInvest() {
-  const [view,setView]=useState(V.LAND);
-  const [vd,setVd]=useState(null);
+  // Restore session from localStorage on load
+  const savedSession = (() => {
+    try { return JSON.parse(localStorage.getItem('noorinvest_session') || 'null'); }
+    catch { return null; }
+  })();
+
+  const [view,setView]=useState(savedSession?.view || V.LAND);
+  const [vd,setVd]=useState(savedSession?.vd || null);
   const [tncDraft,setTncDraft]=useState(INIT_TNC_DRAFT);
   const [tncHistory,setTncHistory]=useState(INIT_TNC_HISTORY);
   const [slots,setSlots]=useState(INIT_MARKET_SLOTS);
   const [pays,setPays]=useState(INIT_PAYMENTS);
   const [wds,setWds]=useState(INIT_WITHDRAWALS);
   const publishedTNC=tncHistory.length>0?tncHistory[tncHistory.length-1]:null;
-  const nav=(v,data=null,user=null)=>{setVd(user||data);setView(v);window.scrollTo(0,0);};
+
+  const nav=(v,data=null,user=null)=>{
+    const newVd = user||data;
+    setVd(newVd);
+    setView(v);
+    window.scrollTo(0,0);
+    // Save session to localStorage (only for authenticated views)
+    if(v===V.IDASH || v===V.ADMIN){
+      try { localStorage.setItem('noorinvest_session', JSON.stringify({view:v, vd:newVd})); }
+      catch {}
+    } else if(v===V.LAND){
+      // Clear session on logout
+      try { localStorage.removeItem('noorinvest_session'); }
+      catch {}
+    }
+  };
+
   const screens={
     [V.LAND]:<Landing nav={nav}/>,
     [V.PHONE]:<PhoneScreen nav={nav}/>,
