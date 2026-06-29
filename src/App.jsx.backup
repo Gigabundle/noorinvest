@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { supabase } from './supabaseClient.js';
 import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -189,204 +188,16 @@ const INVESTORS = [
 
 const BANKS = ["Access Bank","Ecobank","Fidelity Bank","First Bank","GTBank","Jaiz Bank","Keystone Bank","Moniepoint","Opay","Palmpay","Pocketapp","Polaris Bank","Stanbic IBTC","Sterling Bank","Taj Bank","UBA","Unity Bank","Wema Bank","Zenith Bank"];
 const RELS  = ["Spouse","Father","Mother","Son","Daughter","Brother","Sister","Uncle","Aunt","Other"];
-
-// ── Supabase API ──────────────────────────────────────────────────────────────
-let store = INVESTORS.map(i => ({...i})); // kept as fallback during transition
+// ── In-memory store ───────────────────────────────────────────────────────────
+let store = INVESTORS.map(i => ({...i}));
 let newUsers = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));
-
 const api = {
-  phoneLookup: async phone => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('phone, name, has_account')
-        .eq('phone', phone)
-        .single();
-      if (error || !data) return { found: false };
-      return { found: true, name: data.name, hasAccount: data.has_account };
-    } catch {
-      // fallback to in-memory
-      const r = store.find(u => u.phone === phone);
-      return r ? { found: true, name: r.name, hasAccount: r.hasAccount } : { found: false };
-    }
-  },
-
-  createAccount: async (phone, email, pw) => {
-    try {
-      // Check email not already taken
-      const { data: existing } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle();
-      if (existing) return { ok: false, err: "EMAIL_TAKEN" };
-      // Hash password using btoa (simple encoding for now, bcrypt needs backend)
-      const { error } = await supabase
-        .from('users')
-        .update({ email, password_hash: btoa(pw), has_account: true })
-        .eq('phone', phone);
-      if (error) return { ok: false, err: "UPDATE_FAILED" };
-      return { ok: true };
-    } catch {
-      // fallback to in-memory
-      const i = store.findIndex(u => u.phone === phone);
-      if (i < 0) return { ok: false, err: "NOT_FOUND" };
-      if ([...store, ...newUsers].some(u => u.email === email)) return { ok: false, err: "EMAIL_TAKEN" };
-      store[i] = { ...store[i], email, pw, hasAccount: true };
-      return { ok: true };
-    }
-  },
-
-  login: async (email, pw) => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, name, phone, password_hash, role')
-        .eq('email', email)
-        .single();
-      if (error || !data) return { ok: false };
-      if (data.password_hash !== btoa(pw)) return { ok: false };
-      // Get investor record
-      const { data: inv } = await supabase
-        .from('investors')
-        .select('id')
-        .eq('phone', data.phone)
-        .maybeSingle();
-      return { ok: true, name: data.name, id: inv?.id || data.id, phone: data.phone };
-    } catch {
-      const r = [...store, ...newUsers].find(u => u.email === email && u.pw === pw);
-      return r ? { ok: true, name: r.name, id: r.id } : { ok: false };
-    }
-  },
-
-  adminLogin: async (email, pw) => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, name, password_hash, role')
-        .eq('email', email)
-        .eq('role', 'admin')
-        .single();
-      if (error || !data) return { ok: false };
-      if (data.password_hash !== btoa(pw)) return { ok: false };
-      return { ok: true, name: data.name };
-    } catch {
-      return email === "admin@noorinvest.ng" && pw === "Admin@2025" ? { ok: true, name: "Ibrahim Usman" } : { ok: false };
-    }
-  },
-
-  register: async data => {
-    try {
-      // Check email not taken
-      const { data: existingEmail } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', data.email)
-        .maybeSingle();
-      if (existingEmail) return { ok: false, err: "EMAIL_TAKEN" };
-      // Check phone not taken
-      const { data: existingPhone } = await supabase
-        .from('users')
-        .select('id')
-        .eq('phone', data.phone)
-        .maybeSingle();
-      if (existingPhone) return { ok: false, err: "PHONE_TAKEN" };
-      // Insert new user
-      const { error } = await supabase
-        .from('users')
-        .insert({
-          phone: data.phone,
-          name: data.fullName || data.name,
-          email: data.email,
-          password_hash: btoa(data.password),
-          has_account: true,
-          role: 'investor',
-        });
-      if (error) return { ok: false, err: "REGISTER_FAILED" };
-      return { ok: true };
-    } catch {
-      if ([...store, ...newUsers].some(u => u.email === data.email)) return { ok: false, err: "EMAIL_TAKEN" };
-      if ([...store, ...newUsers].some(u => u.phone === data.phone)) return { ok: false, err: "PHONE_TAKEN" };
-      newUsers.push({ ...data, hasAccount: true });
-      return { ok: true };
-    }
-  },
-
-  getInvestor: async (phone) => {
-    try {
-      const { data, error } = await supabase
-        .from('investors')
-        .select('*')
-        .eq('phone', phone)
-        .single();
-      if (error || !data) return null;
-      return {
-        id: data.id,
-        name: data.name,
-        phone: data.phone,
-        email: data.email,
-        capital: Number(data.capital),
-        stake: Number(data.stake),
-        profit: Number(data.profit),
-        approved_withdrawals: Number(data.approved_withdrawals),
-        profit_withdrawn: data.profit_withdrawn,
-        investment_date: data.investment_date,
-        status: data.status,
-        bank: data.bank,
-        account: data.account,
-        account_number: data.account_number || data.account,
-        account_name: data.account_name || data.name,
-        address: data.address,
-        nokName: data.nok_name,
-        nokPhone: data.nok_phone,
-        nokRelationship: data.nok_rel,
-        nokAddress: data.nok_addr,
-      };
-    } catch { return null; }
-  },
-
-  updateInvestor: async (id, updates) => {
-    try {
-      const { error } = await supabase
-        .from('investors')
-        .update(updates)
-        .eq('id', id);
-      return !error;
-    } catch { return false; }
-  },
-
-  submitWithdrawal: async (wd) => {
-    try {
-      const { error } = await supabase.from('withdrawals').insert(wd);
-      return !error;
-    } catch { return false; }
-  },
-
-  submitPayment: async (pay) => {
-    try {
-      const { error } = await supabase.from('payments').insert(pay);
-      return !error;
-    } catch { return false; }
-  },
-
-  getNotifications: async (investorId) => {
-    try {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('investor_id', investorId)
-        .order('created_at', { ascending: false });
-      if (error) return [];
-      return data.map(n => ({ id: n.id, title: n.title, body: n.body, read: n.read, time: new Date(n.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }));
-    } catch { return []; }
-  },
-
-  markNotificationsRead: async (investorId) => {
-    try {
-      await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
-    } catch {}
-  },
+  phoneLookup: async phone => { await wait(800); const r = store.find(u => u.phone===phone); return r ? {found:true,name:r.name,hasAccount:r.hasAccount} : {found:false}; },
+  createAccount: async (phone,email,pw) => { await wait(900); const i=store.findIndex(u=>u.phone===phone); if(i<0)return{ok:false,err:"NOT_FOUND"}; if([...store,...newUsers].some(u=>u.email===email))return{ok:false,err:"EMAIL_TAKEN"}; store[i]={...store[i],email,pw,hasAccount:true}; return{ok:true}; },
+  login: async (email,pw) => { await wait(800); const r=[...store,...newUsers].find(u=>u.email===email&&u.pw===pw); return r?{ok:true,name:r.name,id:r.id}:{ok:false}; },
+  adminLogin: async (email,pw) => { await wait(800); return email==="admin@noorinvest.ng"&&pw==="Admin@2025"?{ok:true,name:"Ibrahim Usman"}:{ok:false}; },
+  register: async data => { await wait(1000); if([...store,...newUsers].some(u=>u.email===data.email))return{ok:false,err:"EMAIL_TAKEN"}; if([...store,...newUsers].some(u=>u.phone===data.phone))return{ok:false,err:"PHONE_TAKEN"}; newUsers.push({...data,hasAccount:true}); return{ok:true}; },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1793,15 +1604,6 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
     newUsers.find(i=>i.email===user?.email)||
     {...INIT_INVESTOR}
   );
-
-  // Load real investor data from Supabase
-  useState(() => {
-    if (user?.phone) {
-      api.getInvestor(user.phone).then(data => {
-        if (data) setInvestor(data);
-      });
-    }
-  });
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
   const [notifs,setNotifs]=useState(NOTIFS);
