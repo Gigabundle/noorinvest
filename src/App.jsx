@@ -2557,27 +2557,60 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots})=>{
     api.getWithdrawals().then(data=>{ if(data) setWds(data); });
   },[]);
 
-  const updatePay=(id,updates)=>setPays(ps=>ps.map(p=>p.id===id?{...p,...updates}:p));
-  const updateWd=(id,updates)=>setWds(ws=>ws.map(w=>w.id===id?{...w,...updates}:w));
+  const updatePay=async (id,updates)=>{
+    setPays(ps=>ps.map(p=>p.id===id?{...p,...updates}:p));
+    try {
+      const dbUpdates={};
+      if('status' in updates) dbUpdates.status=updates.status;
+      if('rejectReason' in updates) dbUpdates.reject_reason=updates.rejectReason;
+      await supabase.from('payments').update(dbUpdates).eq('id',id);
+    } catch {}
+  };
+  const updateWd=async (id,updates)=>{
+    setWds(ws=>ws.map(w=>w.id===id?{...w,...updates}:w));
+    try {
+      const dbUpdates={};
+      if('status' in updates) dbUpdates.status=updates.status;
+      if('adminNote' in updates) dbUpdates.admin_note=updates.adminNote;
+      await supabase.from('withdrawals').update(dbUpdates).eq('id',id);
+    } catch {}
+  };
 
   const approvePay=id=>updatePay(id,{status:"approved"});
 
-  const approveWd=id=>{
+  const approveWd=async (id)=>{
     const wd=wds.find(w=>w.id===id);
-    updateWd(id,{status:"approved"});
+    await updateWd(id,{status:"approved"});
     if(wd&&wd.capital>0){
       const inv=ALL_INVESTORS.find(i=>i.id===wd.investorId);
-      setSlots(ss=>[...ss,{
-        slot_id:`slt-${id}`,
+      const slotId=`slt-${id}`;
+      const daysInFund=inv?Math.max(0,Math.ceil((new Date()-new Date(inv.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))):0;
+      const newSlot={
+        slot_id:slotId,
         seller:wd.investor,
         cycle:INVESTOR_CYCLE.name,
         capital:wd.capital,
         stake_pct:Number(((wd.capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
         sale_amount:wd.capital,
-        days_in_fund:inv?Math.max(0,Math.ceil((new Date()-new Date(inv.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))):0,
+        days_in_fund:daysInFund,
         expected_rate:INVESTOR_CYCLE.profit_rate,
         lock:false,sold:false,is_company:false,
-      }]);
+      };
+      setSlots(ss=>[...ss,newSlot]);
+      try {
+        await supabase.from('market_slots').insert({
+          slot_id:slotId,
+          seller:wd.investor,
+          seller_investor_id:wd.investorId,
+          cycle_name:INVESTOR_CYCLE.name,
+          capital:wd.capital,
+          stake_pct:newSlot.stake_pct,
+          sale_amount:wd.capital,
+          days_in_fund:daysInFund,
+          expected_rate:INVESTOR_CYCLE.profit_rate,
+          lock:false,sold:false,is_company:false,
+        });
+      } catch {}
     }
   };
 
