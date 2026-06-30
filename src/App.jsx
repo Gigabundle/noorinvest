@@ -945,9 +945,33 @@ const AdminScreen = ({nav}) => {
 // ── Investor Portal Data & Helpers ────────────────────────────────────────────
 const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement" };
 
-const INVESTOR_CYCLE        = CYCLES_DATA.find(c=>c.status==="closed")||CYCLES_DATA[0];
-const INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
-const INVESTOR_FUTURE_CYCLE = { id:"cyc-sep-nov-2026", name:"Cycle Sep–Nov 2026", start:"2026-09-01", end:"2026-11-30", target_pool:200000000, current_pool:200000000, min_investment:500000, max_investment:25000000, expected_rate:5.0, slots_left:0, is_full:true };
+let INVESTOR_CYCLE        = CYCLES_DATA.find(c=>c.status==="closed")||CYCLES_DATA[0];
+let INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
+let INVESTOR_FUTURE_CYCLE = { id:"cyc-sep-nov-2026", name:"Cycle Sep–Nov 2026", start:"2026-09-01", end:"2026-11-30", target_pool:200000000, current_pool:200000000, min_investment:500000, max_investment:25000000, expected_rate:5.0, slots_left:0, is_full:true };
+
+// Updates investor-facing cycle variables whenever live data loads from Supabase.
+// Called from root useEffect and triggers a re-render of the whole tree.
+const updateInvestorCycles = (liveCycles) => {
+  if (!liveCycles?.length) return;
+  const closed = liveCycles.filter(c=>c.status==="closed");
+  const lastClosed = closed.length ? closed.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b) : liveCycles[0];
+  INVESTOR_CYCLE = lastClosed;
+  const openCyc = liveCycles.find(c=>c.status==="open") || liveCycles[liveCycles.length-1];
+  INVESTOR_NEXT_CYCLE = {
+    ...openCyc,
+    current_pool: openCyc.pool || 0,
+    min_investment: 100000,
+    max_investment: 20000000,
+    expected_rate: openCyc.profit_rate || null,
+    slots_left: 18,
+    is_full: false,
+  };
+  const future = liveCycles.filter(c=>c.status==="upcoming"||c.status==="draft");
+  INVESTOR_FUTURE_CYCLE = future.length ? {...future[0], current_pool:future[0].pool||0, min_investment:500000, max_investment:25000000, slots_left:0, is_full:true} : INVESTOR_FUTURE_CYCLE;
+};
+
+// DAYS_LEFT computed as a function so it always reflects current INVESTOR_NEXT_CYCLE
+const getDaysLeft = () => Math.max(0,Math.ceil((new Date(INVESTOR_NEXT_CYCLE.end||"2026-08-31") - new Date())/(1000*60*60*24)));
 
 const PAYMENT_ACCOUNT = { bank:"Moniepoint MFB", account_number:"4650580467", account_name:"Gigabundle Ltd - Gigabundle Investment" };
 
@@ -969,9 +993,6 @@ const INIT_MARKET_SLOTS = [
 const INIT_MY_LISTING = null;
 const INIT_WAITING    = null;
 
-// Date helpers — Finding 5 fix: real device date, not hardcoded
-const CYCLE_END_DATE = new Date(INVESTOR_NEXT_CYCLE.end||"2026-08-31");
-const DAYS_LEFT      = Math.max(0,Math.ceil((CYCLE_END_DATE - new Date())/(1000*60*60*24)));
 const getDays        = amt => { const b=liveThresholds.find(t=>t.max===null||amt<=t.max); return b?b.days:14; };
 const addDays        = n   => { const d=new Date(); d.setDate(d.getDate()+n); return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); };
 const getGreeting    = ()  => { const h=new Date().getHours(); return h<12?"Good morning":h<17?"Good afternoon":"Good evening"; };
@@ -1080,9 +1101,9 @@ const HomeScreen = ({nav,investor}) => {
       {/* Countdown */}
       <Card>
         <div className="flex items-center justify-between">
-          <div><Label>Next Cycle — {INVESTOR_NEXT_CYCLE.name}</Label><p className="text-base font-black text-white">{DAYS_LEFT} days remaining</p><p className="text-xs text-white/40 mt-0.5">Ends {fmtDate(INVESTOR_NEXT_CYCLE.end)}</p></div>
+          <div><Label>Next Cycle — {INVESTOR_NEXT_CYCLE.name}</Label><p className="text-base font-black text-white">{getDaysLeft()} days remaining</p><p className="text-xs text-white/40 mt-0.5">Ends {fmtDate(INVESTOR_NEXT_CYCLE.end)}</p></div>
           <div className="w-14 h-14 rounded-full border-2 border-blue-600 flex items-center justify-center flex-shrink-0">
-            <div className="text-center"><p className="text-sm font-black text-blue-400 leading-none">{DAYS_LEFT}</p><p className="text-[8px] text-white/40 font-bold uppercase">days</p></div>
+            <div className="text-center"><p className="text-sm font-black text-blue-400 leading-none">{getDaysLeft()}</p><p className="text-[8px] text-white/40 font-bold uppercase">days</p></div>
           </div>
         </div>
         <div className="mt-3">
@@ -2196,7 +2217,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
 const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
   // Refresh live cycle data from Supabase every time the dashboard opens
   useEffect(()=>{
-    api.getCycles().then(data=>{ if(data) setCycles(data); });
+    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); }; });
   },[]);
 
   const totalPool=ALL_INVESTORS.reduce((s,i)=>s+i.capital,0);
@@ -2398,7 +2419,7 @@ const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
 
   // Refresh live cycle data from Supabase every time this screen opens
   useEffect(()=>{
-    api.getCycles().then(data=>{ if(data) setCycles(data); });
+    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); } });
   },[]);
 
   const visible=cycles.filter(c=>c.status!=="archived");
@@ -2706,7 +2727,7 @@ const MembersScreen=({investors,setInvestors})=>{
 };
 
 // ── APPROVALS ─────────────────────────────────────────────────────────────────
-const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots})=>{
+const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInvestors,cycles,setCycles})=>{
   const [payFilter,setPayFilter]=useState("all");
   const [wdFilter,setWdFilter]=useState("all");
   const [rejectModal,setRejectModal]=useState(null);
@@ -2738,7 +2759,29 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots})=>{
     } catch {}
   };
 
-  const approvePay=id=>updatePay(id,{status:"approved"});
+  const approvePay=async (id)=>{
+    await updatePay(id,{status:"approved"});
+    const pay=pays.find(p=>p.id===id);
+    if(pay?.type==="new_investment" && pay?.investorId && pay?.amount){
+      // Update investor capital in Supabase
+      const inv=investors.find(i=>i.id===pay.investorId);
+      const newCapital=(inv?.capital||0)+Number(pay.amount);
+      const newStake=Number(((newCapital/INVESTOR_NEXT_CYCLE.pool)*100).toFixed(3));
+      try {
+        await supabase.from('investors').update({capital:newCapital,stake:newStake}).eq('id',pay.investorId);
+        setInvestors(is=>is.map(i=>i.id===pay.investorId?{...i,capital:newCapital,stake:newStake}:i));
+      } catch {}
+      // Update cycle pool in Supabase
+      try {
+        const cyc=cycles.find(c=>c.name===pay.cycle);
+        if(cyc){
+          const newPool=(cyc.pool||0)+Number(pay.amount);
+          await supabase.from('cycles').update({pool:newPool}).eq('id',cyc.id);
+          setCycles(cs=>cs.map(c=>c.name===pay.cycle?{...c,pool:newPool}:c));
+        }
+      } catch {}
+    }
+  };
 
   const approveWd=async (id)=>{
     const wd=wds.find(w=>w.id===id);
@@ -3567,7 +3610,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         {view===VIEWS.EDIT_CYCLE   &&editTarget&&<EditCycleScreen cycle={editTarget} nav={nav} onSave={handleSaveCycle}/>}
         {view===VIEWS.ADD_MEMBERS  &&addTarget&&<AddMembersScreen cycle={addTarget} nav={nav} onAdd={handleAddMembers}/>}
         {view===VIEWS.MEMBERS      &&<MembersScreen investors={investors} setInvestors={setInvestors}/>}
-        {view===VIEWS.APPROVALS    &&<ApprovalsScreen pays={pays} setPays={setPays} wds={wds} setWds={setWds} slots={slots} setSlots={setSlots}/>}
+        {view===VIEWS.APPROVALS    &&<ApprovalsScreen pays={pays} setPays={setPays} wds={wds} setWds={setWds} slots={slots} setSlots={setSlots} investors={investors} setInvestors={setInvestors} cycles={cycles} setCycles={setCycles}/>}
         {view===VIEWS.SETTINGS     &&<SettingsScreen nav={nav}/>}
         {view===VIEWS.PROFIT_CSV       &&<ProfitCSVScreen nav={nav} cycles={cycles} investors={investors} onApply={handleApplyProfitCSV}/>}
         {view===VIEWS.PERFORMANCE_PDF  &&<PerformancePDFScreen nav={nav} cycles={cycles} pdfs={pdfs} setPdfs={setPdfs}/>}
@@ -3607,7 +3650,7 @@ export default function NoorInvest() {
 
   // Load live data from Supabase on startup
   useEffect(()=>{
-    api.getCycles().then(data=>{ if(data) setCycles(data); });
+    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); } });
     api.getPayments().then(data=>{ if(data) setPays(data); });
     api.getWithdrawals().then(data=>{ if(data) setWds(data); });
     api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
