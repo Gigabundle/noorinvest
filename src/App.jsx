@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from './supabaseClient.js';
 import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -3556,7 +3556,9 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
 export default function NoorInvest() {
   const [view,setView]=useState(V.LAND);
   const [vd,setVd]=useState(null);
-  const [tncDraft,setTncDraft]=useState(INIT_TNC_DRAFT);
+  const [tncDraft,setTncDraftRaw]=useState(INIT_TNC_DRAFT);
+  const tncDraftEdited=useRef(false);
+  const setTncDraft=(updater)=>{ tncDraftEdited.current=true; setTncDraftRaw(updater); };
   const [tncHistory,setTncHistory]=useState(INIT_TNC_HISTORY);
   const [slots,setSlots]=useState(INIT_MARKET_SLOTS);
   const [pays,setPays]=useState(INIT_PAYMENTS);
@@ -3582,7 +3584,7 @@ export default function NoorInvest() {
     api.getWithdrawals().then(data=>{ if(data) setWds(data); });
     api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
     api.getThresholds().then(data=>{ if(data) setLiveThresholds(data); });
-    api.getTncDraft().then(data=>{ if(data) setTncDraft(data); });
+    api.getTncDraft().then(data=>{ if(data && !tncDraftEdited.current) setTncDraftRaw(data); });
     api.getTncHistory().then(data=>{ if(data) setTncHistory(data); });
   },[]);
 
