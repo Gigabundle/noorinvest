@@ -1159,6 +1159,7 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
   const [capAmt,setCapAmt]=useState("");
   const [errs,setErrs]=useState({});
   const [done,setDone]=useState(false);
+  const [submitting,setSubmitting]=useState(false);
   const isClosed=INVESTOR_CYCLE.status==="closed";
   const profit=investor.profit, capital=investor.capital;
   const capParsed=parseI(capAmt);
@@ -1180,6 +1181,16 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
     if(type==="profit_part"){if(!capAmt||capParsed<1)e.cap="Enter amount to list";else if(capParsed>=capital)e.cap="For full capital, choose the third option";}
     setErrs(e); if(Object.keys(e).length)return; setStep(2);
   };
+
+  // Issue 3: Block withdrawal if investor has no funds at all
+  if(!investor.capital && !investor.profit) return(
+    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
+      <div className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center"><Wallet className="w-8 h-8 text-white/30"/></div>
+      <div><h2 className="text-xl font-black text-white">No Funds Available</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">You don't have any capital or profit to withdraw yet. Join a cycle to get started.</p></div>
+      <button onClick={()=>nav(IV.INVEST)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">View Available Cycles <ArrowRight className="w-4 h-4"/></button>
+      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60">Back to Home</button>
+    </div>
+  );
 
   if(investor.profit_withdrawn) return(
     <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
@@ -1258,6 +1269,8 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
           <div className="flex gap-3">
             <button onClick={()=>setStep(1)} className="flex-1 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-sm">← Back</button>
             <button onClick={async ()=>{
+              if(submitting) return;
+              setSubmitting(true);
               const wdId=`wd-${Date.now()}`;
               const wdRecord={
                 id:wdId,
@@ -1319,7 +1332,8 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                 });
               }
               setDone(true);
-            }} className="flex-1 py-3 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Confirm</button>
+              setSubmitting(false);
+            }} disabled={submitting} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${submitting?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
           </div>
         </div>
       )}
@@ -1620,8 +1634,38 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) 
     } catch {}
   };
 
-  const handleList=({capital,sale_amount})=>{
-    setMyListing({slot_id:"slt-my-001",cycle:INVESTOR_CYCLE.name,capital,sale_amount,status:"listed",days:getDays(sale_amount)});
+  const handleList=async ({capital,sale_amount})=>{
+    if(!capital||capital<=0) return;
+    const slotId=`slt-${Date.now()}`;
+    const daysInFund=Math.max(0,Math.ceil((new Date()-new Date(investor.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24)));
+    const newSlot={
+      slot_id:slotId,
+      seller:investor.name,
+      cycle:INVESTOR_CYCLE.name,
+      capital,
+      stake_pct:Number(((capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
+      sale_amount,
+      days_in_fund:daysInFund,
+      expected_rate:INVESTOR_CYCLE.profit_rate,
+      lock:false,sold:false,is_company:false,
+    };
+    setMyListing({...newSlot,status:"listed",days:getDays(sale_amount)});
+    setSlots(ss=>[...ss,newSlot]);
+    // Issue 5: Save to Supabase so other users see it after refresh
+    try {
+      await supabase.from('market_slots').insert({
+        slot_id:slotId,
+        seller:investor.name,
+        seller_investor_id:investor.id,
+        cycle_name:INVESTOR_CYCLE.name,
+        capital,
+        stake_pct:newSlot.stake_pct,
+        sale_amount,
+        days_in_fund:daysInFund,
+        expected_rate:INVESTOR_CYCLE.profit_rate,
+        lock:false,sold:false,is_company:false,
+      });
+    } catch {}
   };
 
   const handleWithdrawListing=()=>setMyListing(null);
@@ -1738,6 +1782,7 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
   const [err,setErr]=useState("");
   const [joinedWaiting,setJoinedWaiting]=useState(!!waitingList);
   const [showWaitConfirm,setShowWaitConfirm]=useState(false);
+  const [transferring,setTransferring]=useState(false);
   const parsed=parseI(amount);
   const next=()=>{if(parsed<selectedCycle?.min_investment){setErr(`Minimum is ${fmt(selectedCycle.min_investment)}`);return;}if(parsed>selectedCycle?.max_investment){setErr(`Maximum is ${fmt(selectedCycle.max_investment)}`);return;}setErr("");setStep(2);};
   const handleJoinWaiting=()=>{setWaitingList({cycle:selectedCycle?.name||INVESTOR_FUTURE_CYCLE.name,position:1,joined:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});setJoinedWaiting(true);setShowWaitConfirm(false);};
@@ -1854,6 +1899,8 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
         </Card>
         <Banner type="warning" msg="No extra fees. Transfer the exact amount shown. Use your registered name as narration."/>
         <button onClick={async ()=>{
+          if(transferring) return;
+          setTransferring(true);
           const payId=`pay-${Date.now()}`;
           const payRecord={
             id:payId,
@@ -1882,8 +1929,9 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
           });
           // Update local state
           setPays(ps=>[...ps,payRecord]);
+          setTransferring(false);
           setSelectedCycle(null);setStep(1);setAmount("");
-        }} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Done — I've Made This Transfer</button>
+        }} disabled={transferring} className={`w-full py-3.5 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all ${transferring?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{transferring?<><Loader className="w-4 h-4 animate-spin"/>Submitting…</>:<>Done — I've Made This Transfer</>}</button>
       </div>
     );
   }
@@ -2776,32 +2824,24 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const approvePay=async (id)=>{
     await updatePay(id,{status:"approved"});
     try {
-      console.log('approvePay: starting capital update for payment',id);
       const { data:payData, error:payErr } = await supabase
         .from('payments').select('*').eq('id',id).single();
       if(payErr || !payData){ console.error('approvePay: payment fetch failed',payErr); return; }
-      console.log('approvePay: payment found, type=',payData.type,'investor_id=',payData.investor_id,'amount=',payData.amount);
-      if(payData.type!=='new_investment'){ console.log('approvePay: not new_investment, skipping'); return; }
-      if(!payData.investor_id){ console.error('approvePay: investor_id is null, cannot update capital'); return; }
-      if(!payData.amount){ console.error('approvePay: amount is null, cannot update capital'); return; }
+      if(payData.type!=='new_investment'||!payData.investor_id||!payData.amount) return;
 
       const invId=payData.investor_id;
       const amount=Number(payData.amount);
 
       const { data:invData, error:invErr } = await supabase
         .from('investors').select('capital,stake').eq('id',invId).single();
-      console.log('approvePay: investor fetch result',invData,'error=',invErr);
       if(invErr || !invData){ console.error('approvePay: investor fetch failed',invErr,invId); return; }
 
       const cycPool=INVESTOR_NEXT_CYCLE.pool||101400000;
       const newCapital=Number(invData.capital||0)+amount;
       const newStake=Number(((newCapital/cycPool)*100).toFixed(3));
-      console.log('approvePay: updating capital from',invData.capital,'to',newCapital);
       const { error:updErr } = await supabase
         .from('investors').update({capital:newCapital,stake:newStake}).eq('id',invId);
-      console.log('approvePay: update result error=',updErr);
       if(updErr){ console.error('approvePay: capital update failed',updErr); return; }
-      console.log('approvePay: capital updated successfully');
       setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newCapital,stake:newStake}:i));
 
       const { data:cycData } = await supabase
@@ -3609,15 +3649,13 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
     } catch {}
   };
   const handleApplyProfitCSV=async (cycleId,updates,totalProfit)=>{
-    setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id]}:i));
+    setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id],profit_withdrawn:false}:i));
     setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,total_profit:totalProfit}:c));
     try {
-      // Update each investor's profit in Supabase
       const ids=Object.keys(updates);
       await Promise.all(ids.map(id=>
-        supabase.from('investors').update({ profit:updates[id] }).eq('id',id)
+        supabase.from('investors').update({ profit:updates[id], profit_withdrawn:false }).eq('id',id)
       ));
-      // Update the cycle's total_profit
       await supabase.from('cycles').update({ total_profit:totalProfit }).eq('id',cycleId);
     } catch {}
   };
