@@ -2506,6 +2506,12 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots})=>{
   const [rejectReason,setRejectReason]=useState("");
   const [receiptModal,setReceiptModal]=useState(null);
 
+  // Refresh live data from Supabase every time this screen opens
+  useEffect(()=>{
+    api.getPayments().then(data=>{ if(data) setPays(data); });
+    api.getWithdrawals().then(data=>{ if(data) setWds(data); });
+  },[]);
+
   const updatePay=(id,updates)=>setPays(ps=>ps.map(p=>p.id===id?{...p,...updates}:p));
   const updateWd=(id,updates)=>setWds(ws=>ws.map(w=>w.id===id?{...w,...updates}:w));
 
