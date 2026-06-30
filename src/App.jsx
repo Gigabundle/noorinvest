@@ -491,6 +491,29 @@ const api = {
       await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
     } catch {}
   },
+
+  getMarketSlots: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('market_slots')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error || !data) return null;
+      return data.map(s => ({
+        slot_id: s.slot_id,
+        seller: s.seller,
+        cycle: s.cycle_name,
+        capital: Number(s.capital),
+        stake_pct: Number(s.stake_pct),
+        sale_amount: Number(s.sale_amount),
+        days_in_fund: s.days_in_fund,
+        expected_rate: Number(s.expected_rate),
+        lock: s.lock,
+        sold: s.sold,
+        is_company: s.is_company,
+      }));
+    } catch { return null; }
+  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
