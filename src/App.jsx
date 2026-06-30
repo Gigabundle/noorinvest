@@ -1813,7 +1813,27 @@ const ProfileScreen = ({investor,setInvestor}) => {
   });
   const [saved,setSaved]=useState(false);
   const sd=k=>v=>setDraft(d=>({...d,[k]:v}));
-  const save=()=>{setInvestor({...draft});setEditing(false);setSaved(true);setTimeout(()=>setSaved(false),3000);};
+  const save=async ()=>{
+    setInvestor({...draft});
+    setEditing(false);
+    setSaved(true);
+    setTimeout(()=>setSaved(false),3000);
+    try {
+      await api.updateInvestor(investor.id,{
+        name:draft.name,
+        email:draft.email,
+        phone:draft.phone,
+        address:draft.address,
+        bank:draft.bank,
+        account_number:draft.account_number,
+        account_name:draft.account_name,
+        nok_name:draft.nokName,
+        nok_phone:draft.nokPhone,
+        nok_rel:draft.nokRelationship,
+        nok_addr:draft.nokAddress,
+      });
+    } catch {}
+  };
   const cancel=()=>{setDraft({...investor,account_number:investor.account_number||investor.account||"",account_name:investor.account_name||investor.name||""});setEditing(false);};
 
   const [showPwForm,setShowPwForm]=useState(false);
