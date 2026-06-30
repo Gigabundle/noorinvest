@@ -382,6 +382,110 @@ const api = {
     } catch { return []; }
   },
 
+  getCycles: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cycles')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (error || !data) return null;
+      return data.map(c => ({
+        id: c.id,
+        name: c.name,
+        start: c.start_date,
+        end: c.end_date,
+        pool: Number(c.pool),
+        target_pool: Number(c.target_pool),
+        company_stake_pct: Number(c.company_stake_pct),
+        investor_split: Number(c.investor_split),
+        rollover_days: c.rollover_days,
+        profit_rate: c.profit_rate ? Number(c.profit_rate) : null,
+        total_profit: c.total_profit ? Number(c.total_profit) : null,
+        status: c.status,
+        accepting: c.accepting,
+        investors: c.investors_count,
+        member_ids: [],
+      }));
+    } catch { return null; }
+  },
+
+  getAllInvestors: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('investors')
+        .select('*')
+        .order('name', { ascending: true });
+      if (error || !data) return null;
+      return data.map(i => ({
+        id: i.id,
+        name: i.name,
+        phone: i.phone,
+        email: i.email,
+        capital: Number(i.capital),
+        stake: Number(i.stake),
+        profit: Number(i.profit),
+        approved_withdrawals: Number(i.approved_withdrawals),
+        profit_withdrawn: i.profit_withdrawn,
+        investment_date: i.investment_date,
+        status: i.status,
+        bank: i.bank,
+        account: i.account,
+        account_number: i.account_number || i.account,
+        account_name: i.account_name || i.name,
+        address: i.address,
+        nokName: i.nok_name,
+        nokPhone: i.nok_phone,
+        nokRel: i.nok_rel,
+        nokAddr: i.nok_addr,
+      }));
+    } catch { return null; }
+  },
+
+  getPayments: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error || !data) return null;
+      return data.map(p => ({
+        id: p.id,
+        type: p.type,
+        investor: p.investor_name,
+        investorId: p.investor_id,
+        amount: Number(p.amount),
+        cycle: p.cycle_name,
+        date: p.date,
+        status: p.status,
+        receipt: p.receipt,
+        rejectReason: p.reject_reason || '',
+      }));
+    } catch { return null; }
+  },
+
+  getWithdrawals: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('withdrawals')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error || !data) return null;
+      return data.map(w => ({
+        id: w.id,
+        investorId: w.investor_id,
+        investor: w.investor_name,
+        bank: w.bank,
+        account: w.account,
+        type: w.type,
+        amount: Number(w.amount),
+        capital: Number(w.capital),
+        date: w.date,
+        status: w.status,
+        adminNote: w.admin_note || '',
+      }));
+    } catch { return null; }
+  },
+
   markNotificationsRead: async (investorId) => {
     try {
       await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
@@ -2974,12 +3078,15 @@ const BottomNav=({active,onChange,pendingCount})=>{
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 // ── Admin Panel ──────────────────────────────────────────────────────────────
-const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,onSignOut})=>{
+const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
   const [view,setView]=useState(VIEWS.DASH);
-  const [cycles,setCycles]=useState(CYCLES_DATA);
   const [investors,setInvestors]=useState(ALL_INVESTORS);
   const [editTarget,setEditTarget]=useState(null);
   const [addTarget,setAddTarget]=useState(null);
+
+  useEffect(()=>{
+    api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
+  },[]);
   const [thresholds,setThresholds]=useState(INIT_THRESHOLDS);
   const [pdfs,setPdfs]=useState(INIT_PDFS);
   const pendingCount=pays.filter(p=>p.status==="pending").length+wds.filter(w=>w.status==="pending").length;
@@ -3033,6 +3140,7 @@ export default function NoorInvest() {
   const [slots,setSlots]=useState(INIT_MARKET_SLOTS);
   const [pays,setPays]=useState(INIT_PAYMENTS);
   const [wds,setWds]=useState(INIT_WITHDRAWALS);
+  const [cycles,setCycles]=useState(CYCLES_DATA);
   const publishedTNC=tncHistory.length>0?tncHistory[tncHistory.length-1]:null;
 
   // Restore session on page load
@@ -3044,6 +3152,14 @@ export default function NoorInvest() {
         setView(saved.view);
       }
     } catch {}
+  },[]);
+
+  // Load live data from Supabase on startup
+  useEffect(()=>{
+    api.getCycles().then(data=>{ if(data) setCycles(data); });
+    api.getPayments().then(data=>{ if(data) setPays(data); });
+    api.getWithdrawals().then(data=>{ if(data) setWds(data); });
+    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
   },[]);
 
   const nav=(v,data=null,user=null)=>{
@@ -3068,7 +3184,7 @@ export default function NoorInvest() {
     [V.REG]:<RegScreen nav={nav} publishedTNC={publishedTNC}/>,
     [V.DONE]:<DoneScreen nav={nav} data={vd}/>,
     [V.ADMIN_LOGIN]:<AdminScreen nav={nav}/>,
-    [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} onSignOut={()=>nav(V.LAND)}/>,
+    [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} cycles={cycles} setCycles={setCycles} onSignOut={()=>nav(V.LAND)}/>,
     [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} onSignOut={()=>nav(V.LAND)}/>,
   };
   return <div className="font-sans antialiased">{screens[view]||<Landing nav={nav}/>}</div>;
