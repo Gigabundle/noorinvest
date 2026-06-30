@@ -1094,9 +1094,10 @@ const HomeScreen = ({nav,investor}) => {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <Card className="text-center"><Label>Profit Share</Label><SmallVal color="text-emerald-400">{fmt(investor.profit)}</SmallVal></Card>
-        <Card className="text-center"><Label>Profit Rate</Label><SmallVal color="text-blue-400">{INVESTOR_CYCLE.profit_rate}%</SmallVal></Card>
-        <Card className="text-center"><Label>Your Stake</Label><SmallVal>{investor.stake}%</SmallVal></Card>
+        <Card className="text-center"><Label>Last Rate</Label><SmallVal color="text-blue-400">{INVESTOR_CYCLE.profit_rate?`${INVESTOR_CYCLE.profit_rate}%`:"—"}</SmallVal></Card>
+        <Card className="text-center"><Label>Your Stake</Label><SmallVal>{investor.stake?`${investor.stake}%`:"—"}</SmallVal></Card>
       </div>
+      <p className="text-[10px] text-white/25 text-center -mt-2">Past profit rate shown. Not a guarantee of future returns.</p>
 
       {/* Countdown */}
       <Card>
@@ -1348,9 +1349,17 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
   );
 };
 
-const HistoryScreen = ({investor}) => {
+const HistoryScreen = ({investor, cycles:liveCycles}) => {
   const [showFormula,setShowFormula]=useState(false);
-  const c=INVESTOR_CYCLE;
+  // Only show cycles this investor was part of
+  const myCycles = liveCycles?.length
+    ? liveCycles.filter(c=>
+        c.status==="closed" &&
+        c.total_profit &&
+        (c.member_ids?.includes(investor.id) || !c.member_ids?.length)
+      )
+    : [INVESTOR_CYCLE];
+  const c = myCycles[0] || INVESTOR_CYCLE;
   const investor_profit  = c.total_profit*(c.investor_split/100);
   const company_retained = c.total_profit*(c.company_stake_pct/100);
   const company_capital  = companyCapital(c);
@@ -1358,50 +1367,61 @@ const HistoryScreen = ({investor}) => {
   return(
     <div className="space-y-5 pb-24">
       <h2 className="text-xl font-black text-white">Profit History</h2>
-      <Card className="space-y-3">
-        <Label>Cycle Summary — {c.name}</Label>
-        {[["Total Portfolio",fmt(total_portfolio)],["Investor Pool (70%)",fmt(c.pool)],["Company Stake (30%)",fmt(company_capital)],["Net Profit",fmt(c.total_profit)],["Investor Profit",fmt(investor_profit)],["Company Retained",fmt(company_retained)],["Profit Rate",`${c.profit_rate}%`]].map(([l,v])=>(
-          <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold font-mono">{v}</span></div>
-        ))}
-      </Card>
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Your Allocation History</p>
-        <Card className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div><p className="text-sm font-black text-white">Mar–May 2026</p><p className="text-[10px] text-white/40">{INVESTOR_CYCLE.name}</p></div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 border border-emerald-500/20 text-emerald-400">Allocated</span>
-          </div>
-          <Divider/>
-
-          {/* Plain language explanation — Fix 3 */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-2">
-            <p className="text-sm text-white leading-relaxed">
-              Your <strong className="text-blue-400">{fmt(investor.capital)}</strong> was <strong className="text-blue-400">{investor.stake}%</strong> of the total fund.<br/>
-              You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.profit)}</strong>.
-            </p>
-          </div>
-
-          {/* Collapsible technical formula */}
-          <button onClick={()=>setShowFormula(!showFormula)} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors w-full">
-            {showFormula?<ChevronUp className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>}
-            How was this calculated?
-          </button>
-          {showFormula&&(
-            <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3">
-              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1.5">Formula (backend computed)</p>
-              <p className="text-[11px] text-white/50 leading-relaxed font-mono">(₦{(investor.capital/1000).toFixed(0)}k ÷ ₦{(c.pool/1000).toFixed(0)}k) × {fmt(investor_profit)} = {fmt(investor.profit)}</p>
-              <p className="text-[10px] text-white/25 mt-1">Computed by the backend system at cycle close. Read-only.</p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${INVESTOR_CYCLE.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
-              <div key={l}><Label>{l}</Label><p className={`text-sm font-black font-mono ${color}`}>{v}</p></div>
-            ))}
-          </div>
-          <p className="text-[10px] text-white/30 text-center">Allocated {fmtDate("2026-06-01")}</p>
+      {myCycles.length===0&&(
+        <Card className="text-center py-6 space-y-2">
+          <TrendingUp className="w-8 h-8 text-white/20 mx-auto"/>
+          <p className="text-sm text-white/40">No history yet.</p>
+          <p className="text-[11px] text-white/25">Your profit allocation will appear here after your first cycle closes.</p>
         </Card>
-      </div>
+      )}
+      {myCycles.map(c=>{
+        const investor_profit  = (c.total_profit||0)*(c.investor_split/100);
+        const company_retained = (c.total_profit||0)*(c.company_stake_pct/100);
+        const company_capital  = companyCapital(c);
+        const total_portfolio  = c.pool + company_capital;
+        return(
+          <div key={c.id} className="space-y-4">
+            <Card className="space-y-3">
+              <Label>Cycle Summary — {c.name}</Label>
+              {[["Total Portfolio",fmt(total_portfolio)],["Investor Pool (70%)",fmt(c.pool)],["Company Stake (30%)",fmt(company_capital)],["Net Profit",fmt(c.total_profit)],["Investor Profit",fmt(investor_profit)],["Company Retained",fmt(company_retained)],["Profit Rate",`${c.profit_rate}%`]].map(([l,v])=>(
+                <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold font-mono">{v}</span></div>
+              ))}
+            </Card>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Your Allocation</p>
+              <Card className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div><p className="text-sm font-black text-white">{c.name}</p><p className="text-[10px] text-white/40">{fmtDate(c.start)} — {fmtDate(c.end)}</p></div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 border border-emerald-500/20 text-emerald-400">Allocated</span>
+                </div>
+                <Divider/>
+                <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-2">
+                  <p className="text-sm text-white leading-relaxed">
+                    Your <strong className="text-blue-400">{fmt(investor.capital)}</strong> was <strong className="text-blue-400">{investor.stake}%</strong> of the total fund.<br/>
+                    You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.profit)}</strong>.
+                  </p>
+                </div>
+                <button onClick={()=>setShowFormula(!showFormula)} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors w-full">
+                  {showFormula?<ChevronUp className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>}
+                  How was this calculated?
+                </button>
+                {showFormula&&(
+                  <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3">
+                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1.5">Formula (backend computed)</p>
+                    <p className="text-[11px] text-white/50 leading-relaxed font-mono">(₦{(investor.capital/1000).toFixed(0)}k ÷ ₦{(c.pool/1000).toFixed(0)}k) × {fmt(investor_profit)} = {fmt(investor.profit)}</p>
+                    <p className="text-[10px] text-white/25 mt-1">Computed by the backend system at cycle close. Read-only.</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${c.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
+                    <div key={l}><Label>{l}</Label><p className={`text-sm font-black font-mono ${color}`}>{v}</p></div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </div>
+        );
+      })}
       <Banner type="info" msg="Future cycles will show month-by-month allocation history as the admin uploads profit data each month."/>
     </div>
   );
@@ -1587,7 +1607,7 @@ const ListSlotModal = ({onClose,onList,investor}) => {
   );
 };
 
-const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) => {
+const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,setInvestor}) => {
   const [activeTab,setActiveTab]=useState("buy");
   const [purchasing,setPurchasing]=useState(null);
   const [showList,setShowList]=useState(false);
@@ -1658,6 +1678,8 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) 
     };
     setMyListing({...newSlot,status:"listed",days:getDays(sale_amount)});
     setSlots(ss=>[...ss,newSlot]);
+    // 4D: Reduce displayed capital by listed amount immediately
+    if(setInvestor) setInvestor(prev=>({...prev,capital:Math.max(0,(prev.capital||0)-capital)}));
     // Issue 5: Save to Supabase so other users see it after refresh
     try {
       await supabase.from('market_slots').insert({
@@ -2230,7 +2252,8 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
 
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
-  const [notifs,setNotifs]=useState(NOTIFS);
+  const notifsAlreadyRead = (() => { try { return localStorage.getItem('noorinvest_notifs_read')==='true'; } catch { return false; } })();
+  const [notifs,setNotifs]=useState(NOTIFS.map(n=>notifsAlreadyRead?{...n,read:true}:n));
   const [showNotifs,setShowNotifs]=useState(false);
   const hasUnread=notifs.some(n=>!n.read);
 
@@ -2240,7 +2263,11 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     try { localStorage.setItem('noorinvest_subview',JSON.stringify(v)); } catch {}
   };
 
-  const markRead=()=>setNotifs(ns=>ns.map(n=>({...n,read:true})));
+  const markRead=()=>{
+    setNotifs(ns=>ns.map(n=>({...n,read:true})));
+    api.markNotificationsRead(investor.id);
+    try { localStorage.setItem('noorinvest_notifs_read','true'); } catch {}
+  };
   const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement"};
 
   // Issue 3: Show loading screen until real data arrives
@@ -2271,8 +2298,8 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
       <div className="px-5 py-5 max-w-md mx-auto">
         {view===IV.HOME     &&<HomeScreen nav={nav} investor={investor}/>}
         {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={investor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
-        {view===IV.HISTORY  &&<HistoryScreen investor={investor}/>}
-        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={investor} setPays={setPays}/>}
+        {view===IV.HISTORY  &&<HistoryScreen investor={investor} cycles={cycles}/>}
+        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={investor} setPays={setPays} setInvestor={setInvestor}/>}
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={investor} setPays={setPays} cycles={cycles}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
         {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={investor}/>}
@@ -3747,6 +3774,7 @@ export default function NoorInvest() {
     } else if(v===V.LAND){
       try { localStorage.removeItem('noorinvest_session'); } catch {}
       try { localStorage.removeItem('noorinvest_subview'); } catch {}
+      try { localStorage.removeItem('noorinvest_notifs_read'); } catch {}
     }
   };
 
