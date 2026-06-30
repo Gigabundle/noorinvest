@@ -1731,7 +1731,7 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) 
   );
 };
 
-const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
+const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCycles}) => {
   const [selectedCycle,setSelectedCycle]=useState(null);
   const [step,setStep]=useState(1);
   const [amount,setAmount]=useState("");
@@ -1740,9 +1740,22 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
   const [showWaitConfirm,setShowWaitConfirm]=useState(false);
   const parsed=parseI(amount);
   const next=()=>{if(parsed<selectedCycle?.min_investment){setErr(`Minimum is ${fmt(selectedCycle.min_investment)}`);return;}if(parsed>selectedCycle?.max_investment){setErr(`Maximum is ${fmt(selectedCycle.max_investment)}`);return;}setErr("");setStep(2);};
-  const handleJoinWaiting=()=>{setWaitingList({cycle:INVESTOR_FUTURE_CYCLE.name,position:1,joined:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});setJoinedWaiting(true);setShowWaitConfirm(false);};
+  const handleJoinWaiting=()=>{setWaitingList({cycle:selectedCycle?.name||INVESTOR_FUTURE_CYCLE.name,position:1,joined:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});setJoinedWaiting(true);setShowWaitConfirm(false);};
 
-  const cycles=[INVESTOR_NEXT_CYCLE,INVESTOR_FUTURE_CYCLE];
+  // Build cycle list from live data, falling back to hardcoded if none available
+  const availCycles = liveCycles?.length
+    ? liveCycles
+        .filter(c=>c.status!=="closed"&&c.status!=="archived")
+        .map(c=>({
+          ...c,
+          current_pool: c.pool||0,
+          min_investment: c.min_investment||100000,
+          max_investment: c.max_investment||20000000,
+          expected_rate: c.profit_rate||c.expected_rate||null,
+          slots_left: c.slots_left||18,
+          is_full: c.is_full||false,
+        }))
+    : [INVESTOR_NEXT_CYCLE, INVESTOR_FUTURE_CYCLE];
 
   if(selectedCycle&&step===1){
     const fill=((selectedCycle.current_pool/selectedCycle.target_pool)*100).toFixed(1);
@@ -1885,8 +1898,8 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
           <button onClick={()=>setSelectedCycle(INVESTOR_FUTURE_CYCLE)} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex-shrink-0">View →</button>
         </Card>
       )}
-      {cycles.map(c=>{
-        const fill=((c.current_pool/c.target_pool)*100).toFixed(1);
+      {availCycles.map(c=>{
+        const fill=Math.min(100,((c.current_pool/c.target_pool)*100)).toFixed(1);
         return(
           <Card key={c.id} className="space-y-4">
             <div className="flex items-start justify-between gap-2">
@@ -1894,15 +1907,16 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border flex-shrink-0 ${c.is_full?"bg-red-700/20 border-red-700/30 text-red-400":"bg-blue-700/20 border-blue-700/30 text-blue-400"}`}>{c.is_full?"Full":"Open"}</span>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              {[{l:"Exp. Rate",v:`${c.expected_rate}%`,color:"text-blue-400"},{l:"Min. Join",v:fmt(c.min_investment),color:"text-white"},{l:"Slots",v:c.is_full?"Full":c.slots_left,color:c.is_full?"text-red-400":"text-white"}].map(({l,v,color})=>(
+              {[{l:"Exp. Rate",v:c.expected_rate?`${c.expected_rate}%`:"Pending",color:c.expected_rate?"text-blue-400":"text-white/40"},{l:"Min. Join",v:fmt(c.min_investment||100000),color:"text-white"},{l:"Slots",v:c.is_full?"Full":c.slots_left||"Open",color:c.is_full?"text-red-400":"text-white"}].map(({l,v,color})=>(
                 <div key={l} className="bg-white/5 rounded-xl p-2.5"><p className="text-[9px] text-white/30 uppercase tracking-widest font-bold">{l}</p><p className={`text-xs font-black mt-0.5 ${color}`}>{v}</p></div>
               ))}
             </div>
             <div>
               <div className="flex justify-between text-[10px] text-white/40 mb-1.5"><span>Fund filled</span><span className="text-white font-semibold">{fill}%</span></div>
               <div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full ${c.is_full?"bg-red-500":"bg-blue-600"}`} style={{width:`${fill}%`}}/></div>
-              <p className="text-[10px] text-white/30 mt-1">{fmt(c.current_pool)} of {fmt(c.target_pool)}</p>
+              <p className="text-[10px] text-white/30 mt-1">{fmt(c.current_pool||0)} of {fmt(c.target_pool)}</p>
             </div>
+            <Banner type="info" msg="Expected rate reflects past cycle performance — not a guaranteed return."/>
             <button onClick={()=>setSelectedCycle(c)} className={`w-full py-2.5 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all ${c.is_full?"bg-white/5 border border-white/10 text-white/60 hover:border-white/20":"bg-blue-700 hover:bg-blue-600 text-white"}`}>
               {c.is_full?"Join Waiting List":"Join This Cycle"} <ArrowRight className="w-4 h-4"/>
             </button>
@@ -2130,7 +2144,7 @@ const InvestorNav = ({active,onChange}) => {
 };
 
 // ── Investor Portal Root ─────────────────────────────────────────────────────
-const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
+const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) => {
   // Issue 2: Restore last sub-screen on refresh
   const savedSubView = (() => {
     try { return JSON.parse(localStorage.getItem('noorinvest_subview')||'null'); } catch { return null; }
@@ -2204,7 +2218,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
         {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={investor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={investor}/>}
         {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={investor} setPays={setPays}/>}
-        {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={investor} setPays={setPays}/>}
+        {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={investor} setPays={setPays} cycles={cycles}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
         {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={investor}/>}
       </div>
@@ -2763,21 +2777,30 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
     await updatePay(id,{status:"approved"});
     const pay=pays.find(p=>p.id===id);
     if(pay?.type==="new_investment" && pay?.investorId && pay?.amount){
-      // Update investor capital in Supabase
-      const inv=investors.find(i=>i.id===pay.investorId);
-      const newCapital=(inv?.capital||0)+Number(pay.amount);
-      const newStake=Number(((newCapital/INVESTOR_NEXT_CYCLE.pool)*100).toFixed(3));
       try {
-        await supabase.from('investors').update({capital:newCapital,stake:newStake}).eq('id',pay.investorId);
-        setInvestors(is=>is.map(i=>i.id===pay.investorId?{...i,capital:newCapital,stake:newStake}:i));
+        // Fetch current capital directly from Supabase to avoid stale local state
+        const { data:invData } = await supabase
+          .from('investors')
+          .select('capital, stake')
+          .eq('id', pay.investorId)
+          .single();
+        if(invData){
+          const cycPool = INVESTOR_NEXT_CYCLE.pool || 101400000;
+          const newCapital = Number(invData.capital||0) + Number(pay.amount);
+          const newStake = Number(((newCapital/cycPool)*100).toFixed(3));
+          await supabase.from('investors').update({capital:newCapital, stake:newStake}).eq('id',pay.investorId);
+          setInvestors(is=>is.map(i=>i.id===pay.investorId?{...i,capital:newCapital,stake:newStake}:i));
+        }
       } catch {}
       // Update cycle pool in Supabase
       try {
         const cyc=cycles.find(c=>c.name===pay.cycle);
         if(cyc){
-          const newPool=(cyc.pool||0)+Number(pay.amount);
+          const { data:cycData } = await supabase.from('cycles').select('pool').eq('id',cyc.id).single();
+          const newPool = Number(cycData?.pool||cyc.pool||0) + Number(pay.amount);
           await supabase.from('cycles').update({pool:newPool}).eq('id',cyc.id);
           setCycles(cs=>cs.map(c=>c.name===pay.cycle?{...c,pool:newPool}:c));
+          updateInvestorCycles(cycles.map(c=>c.name===pay.cycle?{...c,pool:newPool}:c));
         }
       } catch {}
     }
@@ -3682,7 +3705,7 @@ export default function NoorInvest() {
     [V.DONE]:<DoneScreen nav={nav} data={vd}/>,
     [V.ADMIN_LOGIN]:<AdminScreen nav={nav}/>,
     [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} cycles={cycles} setCycles={setCycles} onSignOut={()=>nav(V.LAND)}/>,
-    [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} onSignOut={()=>nav(V.LAND)}/>,
+    [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} cycles={cycles} onSignOut={()=>nav(V.LAND)}/>,
   };
   return <div className="font-sans antialiased">{screens[view]||<Landing nav={nav}/>}</div>;
 }
