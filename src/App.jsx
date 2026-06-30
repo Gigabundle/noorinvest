@@ -2776,29 +2776,34 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const approvePay=async (id)=>{
     await updatePay(id,{status:"approved"});
     try {
-      // Re-fetch payment directly from Supabase — avoids stale closure data
+      console.log('approvePay: starting capital update for payment',id);
       const { data:payData, error:payErr } = await supabase
         .from('payments').select('*').eq('id',id).single();
       if(payErr || !payData){ console.error('approvePay: payment fetch failed',payErr); return; }
-      if(payData.type!=='new_investment' || !payData.investor_id || !payData.amount) return;
+      console.log('approvePay: payment found, type=',payData.type,'investor_id=',payData.investor_id,'amount=',payData.amount);
+      if(payData.type!=='new_investment'){ console.log('approvePay: not new_investment, skipping'); return; }
+      if(!payData.investor_id){ console.error('approvePay: investor_id is null, cannot update capital'); return; }
+      if(!payData.amount){ console.error('approvePay: amount is null, cannot update capital'); return; }
 
       const invId=payData.investor_id;
       const amount=Number(payData.amount);
 
-      // Fetch investor's current capital fresh
       const { data:invData, error:invErr } = await supabase
         .from('investors').select('capital,stake').eq('id',invId).single();
+      console.log('approvePay: investor fetch result',invData,'error=',invErr);
       if(invErr || !invData){ console.error('approvePay: investor fetch failed',invErr,invId); return; }
 
       const cycPool=INVESTOR_NEXT_CYCLE.pool||101400000;
       const newCapital=Number(invData.capital||0)+amount;
       const newStake=Number(((newCapital/cycPool)*100).toFixed(3));
+      console.log('approvePay: updating capital from',invData.capital,'to',newCapital);
       const { error:updErr } = await supabase
         .from('investors').update({capital:newCapital,stake:newStake}).eq('id',invId);
+      console.log('approvePay: update result error=',updErr);
       if(updErr){ console.error('approvePay: capital update failed',updErr); return; }
+      console.log('approvePay: capital updated successfully');
       setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newCapital,stake:newStake}:i));
 
-      // Update cycle pool
       const { data:cycData } = await supabase
         .from('cycles').select('id,pool').eq('name',payData.cycle_name).maybeSingle();
       if(cycData){
