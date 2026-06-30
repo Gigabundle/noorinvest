@@ -51,6 +51,10 @@ const INIT_THRESHOLDS = [
   { id:2, min:1000001, max:2000000, days:7  },
   { id:3, min:2000001, max:null,    days:14 },
 ];
+// Live-updatable copy that investor-facing settlement calculations read from.
+// Updated whenever real threshold data loads from Supabase or admin saves changes.
+let liveThresholds = INIT_THRESHOLDS;
+const setLiveThresholds = (t) => { if (Array.isArray(t) && t.length) liveThresholds = t; };
 
 // Monthly performance PDF archive — seeded with the real historical report already covering Mar–May 2026
 const INIT_PDFS = [
@@ -515,6 +519,22 @@ const api = {
     } catch { return null; }
   },
 
+  getThresholds: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('thresholds')
+        .select('*')
+        .order('min_amount', { ascending: true });
+      if (error || !data) return null;
+      return data.map(t => ({
+        id: t.id,
+        min: Number(t.min_amount),
+        max: t.max_amount===null ? null : Number(t.max_amount),
+        days: t.settlement_days,
+      }));
+    } catch { return null; }
+  },
+
   markNotificationsRead: async (investorId) => {
     try {
       await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
@@ -913,7 +933,7 @@ const INIT_WAITING    = null;
 // Date helpers — Finding 5 fix: real device date, not hardcoded
 const CYCLE_END_DATE = new Date(INVESTOR_NEXT_CYCLE.end||"2026-08-31");
 const DAYS_LEFT      = Math.max(0,Math.ceil((CYCLE_END_DATE - new Date())/(1000*60*60*24)));
-const getDays        = amt => { const b=INIT_THRESHOLDS.find(t=>t.max===null||amt<=t.max); return b?b.days:14; };
+const getDays        = amt => { const b=liveThresholds.find(t=>t.max===null||amt<=t.max); return b?b.days:14; };
 const addDays        = n   => { const d=new Date(); d.setDate(d.getDate()+n); return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); };
 const getGreeting    = ()  => { const h=new Date().getHours(); return h<12?"Good morning":h<17?"Good afternoon":"Good evening"; };
 const fmtI   = raw => { const d=String(raw).replace(/[^\d]/g,""); return d?Number(d).toLocaleString("en-NG"):""; };
@@ -2854,7 +2874,24 @@ const ThresholdsScreen=({nav,thresholds,setThresholds})=>{
   const hasOverlap=sorted.some((b,idx)=>idx>0&&sorted[idx-1].max!==null&&b.min<=sorted[idx-1].max);
   const hasGap=sorted.some((b,idx)=>idx>0&&sorted[idx-1].max!==null&&b.min>sorted[idx-1].max+1);
 
-  const save=()=>{setThresholds(sorted);setSaved(true);setTimeout(()=>nav(VIEWS.SETTINGS),1000);};
+  const save=async ()=>{
+    setThresholds(sorted);
+    setLiveThresholds(sorted);
+    setSaved(true);
+    setTimeout(()=>nav(VIEWS.SETTINGS),1000);
+    try {
+      // Delete all existing bands and reinsert with clean sequential ids
+      // (avoids integer overflow from Date.now()-based ids on newly added bands)
+      await supabase.from('thresholds').delete().gte('id',0);
+      const rows=sorted.map((t,idx)=>({
+        id: idx+1,
+        min_amount: t.min,
+        max_amount: t.max,
+        settlement_days: t.days,
+      }));
+      await supabase.from('thresholds').insert(rows);
+    } catch {}
+  };
 
   return (
     <div className="space-y-4 pb-24">
@@ -2905,17 +2942,49 @@ const ThresholdsScreen=({nav,thresholds,setThresholds})=>{
 const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
   const [cycleId,setCycleId]=useState(cycles[0]?.id||"");
   const [month,setMonth]=useState("");
+  const [uploading,setUploading]=useState(false);
+  const [uploadErr,setUploadErr]=useState("");
 
-  const handleUpload=e=>{
+  const handleUpload=async (e)=>{
     const file=e.target.files?.[0];
     if(!file)return;
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      const cycle=cycles.find(c=>c.id===cycleId);
-      setPdfs(ps=>[...ps,{id:`pdf-${Date.now()}`,cycleId,cycleName:cycle?.name||"—",month,uploadedDate:new Date().toISOString().slice(0,10),fileName:file.name,fileData:ev.target.result}]);
+    setUploading(true);setUploadErr("");
+    const cycle=cycles.find(c=>c.id===cycleId);
+    const pdfId=`pdf-${Date.now()}`;
+    const fileName=file.name;
+    try {
+      // Upload actual file bytes to Supabase Storage
+      const storagePath=`${pdfId}-${fileName}`;
+      const { error: uploadError } = await supabase.storage
+        .from('performance-pdfs')
+        .upload(storagePath, file);
+      if (uploadError) {
+        setUploadErr("Upload failed. The storage bucket may not be set up yet — check with your developer.");
+        setUploading(false);
+        return;
+      }
+      const { data: urlData } = supabase.storage
+        .from('performance-pdfs')
+        .getPublicUrl(storagePath);
+      const fileUrl=urlData?.publicUrl||null;
+      const newPdf={id:pdfId,cycleId,cycleName:cycle?.name||"—",month,uploadedDate:new Date().toISOString().slice(0,10),fileName,fileData:fileUrl};
+      setPdfs(ps=>[...ps,newPdf]);
+      // Save record to Supabase
+      await supabase.from('performance_pdfs').insert({
+        id:pdfId,
+        cycle_id:cycleId,
+        cycle_name:cycle?.name||"—",
+        month_label:month,
+        uploaded_date:new Date().toISOString().slice(0,10),
+        file_name:fileName,
+        file_url:fileUrl,
+        note:null,
+      });
       setMonth("");
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setUploadErr("Something went wrong. Check your connection and try again.");
+    }
+    setUploading(false);
   };
 
   return (
@@ -2935,12 +3004,14 @@ const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
           <input type="text" value={month} onChange={e=>setMonth(e.target.value)} placeholder='e.g. "June 2026"' className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-blue-600/30"/>
         </div>
         {!month.trim()&&<p className="text-xs text-amber-400">Enter a month / period label above to enable the upload button.</p>}
-        {month.trim()
+        {uploadErr&&<Err msg={uploadErr}/>}
+        {uploading&&<p className="text-xs text-blue-400 flex items-center gap-1.5"><Loader className="w-3.5 h-3.5 animate-spin"/>Uploading…</p>}
+        {!uploading&&month.trim()
           ?<label className="w-full py-2.5 bg-white/5 border border-dashed border-white/20 text-white/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer hover:border-white/40 hover:text-white/60">
               <Upload className="w-3.5 h-3.5"/>Choose PDF File
               <input type="file" accept="application/pdf" className="hidden" onChange={handleUpload}/>
             </label>
-          :<div className="w-full py-2.5 bg-white/5 border border-dashed border-white/10 text-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-not-allowed">
+          :!uploading&&<div className="w-full py-2.5 bg-white/5 border border-dashed border-white/10 text-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-not-allowed">
               <Upload className="w-3.5 h-3.5"/>Choose PDF File
             </div>
         }
@@ -3367,9 +3438,18 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
       }
     } catch {}
   };
-  const handleApplyProfitCSV=(cycleId,updates,totalProfit)=>{
+  const handleApplyProfitCSV=async (cycleId,updates,totalProfit)=>{
     setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id]}:i));
     setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,total_profit:totalProfit}:c));
+    try {
+      // Update each investor's profit in Supabase
+      const ids=Object.keys(updates);
+      await Promise.all(ids.map(id=>
+        supabase.from('investors').update({ profit:updates[id] }).eq('id',id)
+      ));
+      // Update the cycle's total_profit
+      await supabase.from('cycles').update({ total_profit:totalProfit }).eq('id',cycleId);
+    } catch {}
   };
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
   const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
@@ -3434,6 +3514,7 @@ export default function NoorInvest() {
     api.getPayments().then(data=>{ if(data) setPays(data); });
     api.getWithdrawals().then(data=>{ if(data) setWds(data); });
     api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
+    api.getThresholds().then(data=>{ if(data) setLiveThresholds(data); });
   },[]);
 
   const nav=(v,data=null,user=null)=>{
