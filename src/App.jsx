@@ -1702,9 +1702,10 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
           ))}
         </Card>
         <Banner type="warning" msg="No extra fees. Transfer the exact amount shown. Use your registered name as narration."/>
-        <button onClick={()=>{
-          setPays(ps=>[...ps,{
-            id:`pay-${Date.now()}`,
+        <button onClick={async ()=>{
+          const payId=`pay-${Date.now()}`;
+          const payRecord={
+            id:payId,
             type:"new_investment",
             investor:investor.name,
             investorId:investor.id,
@@ -1714,7 +1715,22 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
             status:"pending",
             receipt:null,
             rejectReason:"",
-          }]);
+          };
+          // Save to Supabase
+          await api.submitPayment({
+            id:payId,
+            type:"new_investment",
+            investor_name:investor.name,
+            investor_id:investor.id,
+            amount:parsed,
+            cycle_name:selectedCycle.name,
+            date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
+            status:"pending",
+            receipt:null,
+            reject_reason:"",
+          });
+          // Update local state
+          setPays(ps=>[...ps,payRecord]);
           setSelectedCycle(null);setStep(1);setAmount("");
         }} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Done — I've Made This Transfer</button>
       </div>
