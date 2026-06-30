@@ -1677,7 +1677,7 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) 
 
   const handleWithdrawListing=()=>setMyListing(null);
 
-  const availableSlots=slots.filter(s=>!s.sold);
+  const availableSlots=slots.filter(s=>!s.sold && s.seller_investor_id!==investor.id && s.seller!==investor.name);
 
   return(
     <div className="space-y-5 pb-24">
