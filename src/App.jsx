@@ -304,6 +304,33 @@ const api = {
           role: 'investor',
         });
       if (error) return { ok: false, err: "REGISTER_FAILED" };
+      // Create matching investor record so the investor portal has real data
+      const newInvestorId = `u-${Date.now()}`;
+      const { error: invError } = await supabase
+        .from('investors')
+        .insert({
+          id: newInvestorId,
+          name: data.fullName || data.name,
+          phone: data.phone,
+          email: data.email,
+          capital: 0,
+          stake: 0,
+          profit: 0,
+          approved_withdrawals: 0,
+          profit_withdrawn: false,
+          investment_date: new Date().toISOString().slice(0,10),
+          status: 'active',
+          bank: data.bankName || '',
+          account: data.bankAccountNo || '',
+          account_number: data.bankAccountNo || '',
+          account_name: data.bankAccountName || data.fullName || data.name,
+          address: data.address || '',
+          nok_name: data.nokName || '',
+          nok_phone: data.nokPhone || '',
+          nok_rel: data.nokRelationship || '',
+          nok_addr: data.nokAddress || '',
+        });
+      if (invError) return { ok: false, err: "REGISTER_FAILED" };
       return { ok: true };
     } catch {
       if ([...store, ...newUsers].some(u => u.email === data.email)) return { ok: false, err: "EMAIL_TAKEN" };
@@ -1847,14 +1874,14 @@ const ProfileScreen = ({investor,setInvestor}) => {
       const { data, error } = await supabase
         .from('users')
         .select('password_hash')
-        .eq('phone', investor.phone)
+        .eq('email', investor.email)
         .single();
       if (error || !data) { setPwErr("Could not verify your account. Try again."); return; }
       if (data.password_hash !== btoa(curPw)) { setPwErr("Current password is incorrect."); return; }
       const { error: updateError } = await supabase
         .from('users')
         .update({ password_hash: btoa(newPw) })
-        .eq('phone', investor.phone);
+        .eq('email', investor.email);
       if (updateError) { setPwErr("Failed to update password. Try again."); return; }
       setCurPw("");setNewPw("");setConfirmPw("");
       setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
