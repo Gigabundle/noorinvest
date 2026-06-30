@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from './supabaseClient.js';
 import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -3026,14 +3026,8 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
 
 // ── Shared Root ──────────────────────────────────────────────────────────────
 export default function NoorInvest() {
-  // Restore session from localStorage on load
-  const savedSession = (() => {
-    try { return JSON.parse(localStorage.getItem('noorinvest_session') || 'null'); }
-    catch { return null; }
-  })();
-
-  const [view,setView]=useState(savedSession?.view || V.LAND);
-  const [vd,setVd]=useState(savedSession?.vd || null);
+  const [view,setView]=useState(V.LAND);
+  const [vd,setVd]=useState(null);
   const [tncDraft,setTncDraft]=useState(INIT_TNC_DRAFT);
   const [tncHistory,setTncHistory]=useState(INIT_TNC_HISTORY);
   const [slots,setSlots]=useState(INIT_MARKET_SLOTS);
@@ -3041,17 +3035,26 @@ export default function NoorInvest() {
   const [wds,setWds]=useState(INIT_WITHDRAWALS);
   const publishedTNC=tncHistory.length>0?tncHistory[tncHistory.length-1]:null;
 
+  // Restore session on page load
+  useEffect(()=>{
+    try {
+      const saved=JSON.parse(localStorage.getItem('noorinvest_session')||'null');
+      if(saved?.view && saved?.vd && (saved.view===V.IDASH||saved.view===V.ADMIN)){
+        setVd(saved.vd);
+        setView(saved.view);
+      }
+    } catch {}
+  },[]);
+
   const nav=(v,data=null,user=null)=>{
-    const newVd = user||data;
+    const newVd=user||data;
     setVd(newVd);
     setView(v);
     window.scrollTo(0,0);
-    // Save session to localStorage (only for authenticated views)
-    if(v===V.IDASH || v===V.ADMIN){
-      try { localStorage.setItem('noorinvest_session', JSON.stringify({view:v, vd:newVd})); }
+    if(v===V.IDASH||v===V.ADMIN){
+      try { localStorage.setItem('noorinvest_session',JSON.stringify({view:v,vd:newVd})); }
       catch {}
     } else if(v===V.LAND){
-      // Clear session on logout
       try { localStorage.removeItem('noorinvest_session'); }
       catch {}
     }
