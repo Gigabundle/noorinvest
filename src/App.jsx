@@ -1839,16 +1839,28 @@ const ProfileScreen = ({investor,setInvestor}) => {
   const [showPwForm,setShowPwForm]=useState(false);
   const [curPw,setCurPw]=useState(""); const [newPw,setNewPw]=useState(""); const [confirmPw,setConfirmPw]=useState("");
   const [pwErr,setPwErr]=useState(""); const [pwSaved,setPwSaved]=useState(false);
-  const changePw=()=>{
+  const changePw=async ()=>{
     setPwErr("");
-    const record=store.find(u=>u.phone===investor.phone);
-    if(!record||record.pw!==curPw){setPwErr("Current password is incorrect.");return;}
     if(newPw.length<6){setPwErr("New password must be at least 6 characters.");return;}
     if(newPw!==confirmPw){setPwErr("New passwords do not match.");return;}
-    const idx=store.findIndex(u=>u.phone===investor.phone);
-    if(idx>=0)store[idx]={...store[idx],pw:newPw};
-    setCurPw("");setNewPw("");setConfirmPw("");
-    setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('password_hash')
+        .eq('phone', investor.phone)
+        .single();
+      if (error || !data) { setPwErr("Could not verify your account. Try again."); return; }
+      if (data.password_hash !== btoa(curPw)) { setPwErr("Current password is incorrect."); return; }
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ password_hash: btoa(newPw) })
+        .eq('phone', investor.phone);
+      if (updateError) { setPwErr("Failed to update password. Try again."); return; }
+      setCurPw("");setNewPw("");setConfirmPw("");
+      setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
+    } catch {
+      setPwErr("Something went wrong. Check your connection and try again.");
+    }
   };
 
   return(
