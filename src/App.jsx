@@ -2775,35 +2775,39 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
 
   const approvePay=async (id)=>{
     await updatePay(id,{status:"approved"});
-    const pay=pays.find(p=>p.id===id);
-    if(pay?.type==="new_investment" && pay?.investorId && pay?.amount){
-      try {
-        // Fetch current capital directly from Supabase to avoid stale local state
-        const { data:invData } = await supabase
-          .from('investors')
-          .select('capital, stake')
-          .eq('id', pay.investorId)
-          .single();
-        if(invData){
-          const cycPool = INVESTOR_NEXT_CYCLE.pool || 101400000;
-          const newCapital = Number(invData.capital||0) + Number(pay.amount);
-          const newStake = Number(((newCapital/cycPool)*100).toFixed(3));
-          await supabase.from('investors').update({capital:newCapital, stake:newStake}).eq('id',pay.investorId);
-          setInvestors(is=>is.map(i=>i.id===pay.investorId?{...i,capital:newCapital,stake:newStake}:i));
-        }
-      } catch {}
-      // Update cycle pool in Supabase
-      try {
-        const cyc=cycles.find(c=>c.name===pay.cycle);
-        if(cyc){
-          const { data:cycData } = await supabase.from('cycles').select('pool').eq('id',cyc.id).single();
-          const newPool = Number(cycData?.pool||cyc.pool||0) + Number(pay.amount);
-          await supabase.from('cycles').update({pool:newPool}).eq('id',cyc.id);
-          setCycles(cs=>cs.map(c=>c.name===pay.cycle?{...c,pool:newPool}:c));
-          updateInvestorCycles(cycles.map(c=>c.name===pay.cycle?{...c,pool:newPool}:c));
-        }
-      } catch {}
-    }
+    try {
+      // Re-fetch payment directly from Supabase — avoids stale closure data
+      const { data:payData, error:payErr } = await supabase
+        .from('payments').select('*').eq('id',id).single();
+      if(payErr || !payData){ console.error('approvePay: payment fetch failed',payErr); return; }
+      if(payData.type!=='new_investment' || !payData.investor_id || !payData.amount) return;
+
+      const invId=payData.investor_id;
+      const amount=Number(payData.amount);
+
+      // Fetch investor's current capital fresh
+      const { data:invData, error:invErr } = await supabase
+        .from('investors').select('capital,stake').eq('id',invId).single();
+      if(invErr || !invData){ console.error('approvePay: investor fetch failed',invErr,invId); return; }
+
+      const cycPool=INVESTOR_NEXT_CYCLE.pool||101400000;
+      const newCapital=Number(invData.capital||0)+amount;
+      const newStake=Number(((newCapital/cycPool)*100).toFixed(3));
+      const { error:updErr } = await supabase
+        .from('investors').update({capital:newCapital,stake:newStake}).eq('id',invId);
+      if(updErr){ console.error('approvePay: capital update failed',updErr); return; }
+      setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newCapital,stake:newStake}:i));
+
+      // Update cycle pool
+      const { data:cycData } = await supabase
+        .from('cycles').select('id,pool').eq('name',payData.cycle_name).maybeSingle();
+      if(cycData){
+        const newPool=Number(cycData.pool||0)+amount;
+        await supabase.from('cycles').update({pool:newPool}).eq('id',cycData.id);
+        setCycles(cs=>cs.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
+        updateInvestorCycles(cycles.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
+      }
+    } catch(e){ console.error('approvePay error:',e); }
   };
 
   const approveWd=async (id)=>{
