@@ -2317,9 +2317,24 @@ const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
 
   const visible=cycles.filter(c=>c.status!=="archived");
   const archived=cycles.filter(c=>c.status==="archived");
-  const toggleAccepting=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,accepting:!c.accepting}:c));
-  const archiveCycle=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,prevStatus:c.status,prevAccepting:c.accepting,status:"archived",accepting:false}:c));
-  const restoreCycle=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,status:c.prevStatus||"closed",accepting:c.prevAccepting||false,prevStatus:undefined,prevAccepting:undefined}:c));
+  const toggleAccepting=async (id)=>{
+    const cyc=cycles.find(c=>c.id===id);
+    const newAccepting=!cyc?.accepting;
+    setCycles(cs=>cs.map(c=>c.id===id?{...c,accepting:newAccepting}:c));
+    try { await supabase.from('cycles').update({ accepting:newAccepting }).eq('id',id); } catch {}
+  };
+  const archiveCycle=async (id)=>{
+    const cyc=cycles.find(c=>c.id===id);
+    setCycles(cs=>cs.map(c=>c.id===id?{...c,prevStatus:c.status,prevAccepting:c.accepting,status:"archived",accepting:false}:c));
+    try { await supabase.from('cycles').update({ status:"archived", accepting:false }).eq('id',id); } catch {}
+  };
+  const restoreCycle=async (id)=>{
+    const cyc=cycles.find(c=>c.id===id);
+    const restoredStatus=cyc?.prevStatus||"closed";
+    const restoredAccepting=cyc?.prevAccepting||false;
+    setCycles(cs=>cs.map(c=>c.id===id?{...c,status:restoredStatus,accepting:restoredAccepting,prevStatus:undefined,prevAccepting:undefined}:c));
+    try { await supabase.from('cycles').update({ status:restoredStatus, accepting:restoredAccepting }).eq('id',id); } catch {}
+  };
 
   const buildCycleReport=c=>[
     "NOORINVEST — CYCLE SUMMARY REPORT",
@@ -3308,8 +3323,50 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
   const [pdfs,setPdfs]=useState(INIT_PDFS);
   const pendingCount=pays.filter(p=>p.status==="pending").length+wds.filter(w=>w.status==="pending").length;
   const nav=v=>setView(v);
-  const handleSaveCycle=c=>{setCycles(cs=>{const ex=cs.find(x=>x.id===c.id);return ex?cs.map(x=>x.id===c.id?c:x):[...cs,c];});};
-  const handleAddMembers=(cycleId,ticked)=>{setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,investors:c.investors+Object.keys(ticked).length,pool:c.pool+Object.values(ticked).reduce((s,v)=>s+parseAmt(v),0),member_ids:[...(c.member_ids||[]),...Object.keys(ticked)]}:c));};
+  const handleSaveCycle=async (c)=>{
+    setCycles(cs=>{const ex=cs.find(x=>x.id===c.id);return ex?cs.map(x=>x.id===c.id?c:x):[...cs,c];});
+    try {
+      await supabase.from('cycles').upsert({
+        id:c.id,
+        name:c.name,
+        start_date:c.start,
+        end_date:c.end,
+        pool:c.pool,
+        target_pool:c.target_pool,
+        company_stake_pct:c.company_stake_pct,
+        investor_split:c.investor_split,
+        rollover_days:c.rollover_days,
+        profit_rate:c.profit_rate,
+        total_profit:c.total_profit,
+        status:c.status,
+        accepting:c.accepting,
+        investors_count:c.investors,
+      });
+    } catch {}
+  };
+
+  const handleAddMembers=async (cycleId,ticked)=>{
+    const addedCount=Object.keys(ticked).length;
+    const addedTotal=Object.values(ticked).reduce((s,v)=>s+parseAmt(v),0);
+    setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,investors:c.investors+addedCount,pool:c.pool+addedTotal,member_ids:[...(c.member_ids||[]),...Object.keys(ticked)]}:c));
+    try {
+      const cyc=cycles.find(c=>c.id===cycleId);
+      // Insert cycle_members rows
+      const rows=Object.entries(ticked).map(([investorId,amt])=>({
+        cycle_id:cycleId,
+        investor_id:investorId,
+        capital_in_cycle:parseAmt(amt),
+      }));
+      await supabase.from('cycle_members').insert(rows);
+      // Update cycle pool and investor count
+      if(cyc){
+        await supabase.from('cycles').update({
+          pool:cyc.pool+addedTotal,
+          investors_count:cyc.investors+addedCount,
+        }).eq('id',cycleId);
+      }
+    } catch {}
+  };
   const handleApplyProfitCSV=(cycleId,updates,totalProfit)=>{
     setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id]}:i));
     setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,total_profit:totalProfit}:c));
