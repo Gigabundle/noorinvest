@@ -2252,7 +2252,20 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
 
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
-  const notifsAlreadyRead = (() => { try { return localStorage.getItem('noorinvest_notifs_read')==='true'; } catch { return false; } })();
+
+  // 4D: Restore myListing from Supabase on load so it survives refresh
+  useEffect(()=>{
+    if(!investor?.id) return;
+    api.getMarketSlots().then(allSlots=>{
+      if(!allSlots) return;
+      const own=allSlots.find(s=>!s.sold&&(s.seller_investor_id===investor.id||s.seller===investor.name));
+      if(own) setMyListing({...own,status:"listed",days:getDays(own.sale_amount)});
+    });
+  },[investor.id]);
+
+  // 4E: Notification read state keyed by investor ID so different users don't share state
+  const notifKey=`noorinvest_notifs_read_${investor.id}`;
+  const notifsAlreadyRead = (() => { try { return localStorage.getItem(notifKey)==='true'; } catch { return false; } })();
   const [notifs,setNotifs]=useState(NOTIFS.map(n=>notifsAlreadyRead?{...n,read:true}:n));
   const [showNotifs,setShowNotifs]=useState(false);
   const hasUnread=notifs.some(n=>!n.read);
@@ -2266,7 +2279,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   const markRead=()=>{
     setNotifs(ns=>ns.map(n=>({...n,read:true})));
     api.markNotificationsRead(investor.id);
-    try { localStorage.setItem('noorinvest_notifs_read','true'); } catch {}
+    try { localStorage.setItem(notifKey,'true'); } catch {}
   };
   const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement"};
 
@@ -3774,7 +3787,9 @@ export default function NoorInvest() {
     } else if(v===V.LAND){
       try { localStorage.removeItem('noorinvest_session'); } catch {}
       try { localStorage.removeItem('noorinvest_subview'); } catch {}
-      try { localStorage.removeItem('noorinvest_notifs_read'); } catch {}
+      try {
+        Object.keys(localStorage).filter(k=>k.startsWith('noorinvest_notifs_read_')).forEach(k=>localStorage.removeItem(k));
+      } catch {}
     }
   };
 
