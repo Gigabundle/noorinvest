@@ -1169,10 +1169,15 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
   const profitAmt=type!=="capital_mid"?profit:0;
   const capToList=type==="profit_part"?capParsed:["profit_full","capital_mid"].includes(type)?capital:0;
 
+  const profitAlreadyRequested=investor.profit_withdrawn;
+
   const opts=isClosed
-    ?[{id:"profit_only", label:"Withdraw profit share only",        sub:`Receive ${fmt(profit)}. Your ${fmt(capital)} stays invested.`},
-      {id:"profit_part", label:"Withdraw profit + part of capital", sub:`Receive ${fmt(profit)} and list a chosen portion for sale.`},
-      {id:"profit_full", label:"Withdraw profit + all capital",     sub:`Receive ${fmt(profit)} and list your full ${fmt(capital)} on the market.`}]
+    ?[
+      ...(!profitAlreadyRequested?[{id:"profit_only", label:"Withdraw profit share only",        sub:`Receive ${fmt(profit)}. Your ${fmt(capital)} stays invested.`}]:[]),
+      ...(!profitAlreadyRequested?[{id:"profit_part", label:"Withdraw profit + part of capital", sub:`Receive ${fmt(profit)} and list a chosen portion for sale.`}]:[]),
+      ...(!profitAlreadyRequested?[{id:"profit_full", label:"Withdraw profit + all capital",     sub:`Receive ${fmt(profit)} and list your full ${fmt(capital)} on the market.`}]:[]),
+      ...(profitAlreadyRequested&&capital>0?[{id:"profit_full", label:"List my capital for sale", sub:`Profit withdrawal already submitted. List your ${fmt(capital)} on the secondary market.`}]:[]),
+    ]
     :[{id:"capital_mid", label:"List my investment for sale",       sub:"Round still running. List your slot. Profit for days held pays when the cycle ends."}];
 
   const next=()=>{
@@ -1192,7 +1197,8 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
     </div>
   );
 
-  if(investor.profit_withdrawn) return(
+  // Show "already submitted" only if profit is withdrawn AND investor has no capital to action
+  if(investor.profit_withdrawn && !investor.capital) return(
     <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
       <div className="w-16 h-16 rounded-full bg-blue-700/10 border-2 border-blue-700/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-blue-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Already Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your withdrawal request is pending admin approval. You will be notified once it is processed.</p></div>
@@ -1224,6 +1230,7 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
       <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
       <h2 className="text-xl font-black text-white">Withdraw Funds</h2>
       {!isClosed&&<Banner type="warning" msg="This round is still running. You can sell your capital slot now. Your profit will be calculated and paid when the round ends."/>}
+      {isClosed&&profitAlreadyRequested&&<Banner type="info" msg="Your profit withdrawal is already submitted and pending admin approval. You can still list your capital on the secondary market."/>}
       {isClosed&&(
         <div className="grid grid-cols-2 gap-3">
           <Card className="text-center"><Label>Profit Ready</Label><SmallVal color="text-emerald-400">{fmt(profit)}</SmallVal></Card>
