@@ -535,6 +535,44 @@ const api = {
     } catch { return null; }
   },
 
+  getTncDraft: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tnc_versions')
+        .select('*')
+        .eq('is_draft', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data) return null;
+      return {
+        _dbId: data.id,
+        pendingVersion: data.version,
+        shariahReviewed: data.shariah_reviewed,
+        legalReviewed: data.legal_reviewed,
+        clauses: data.clauses,
+      };
+    } catch { return null; }
+  },
+
+  getTncHistory: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tnc_versions')
+        .select('*')
+        .eq('is_draft', false)
+        .order('created_at', { ascending: true });
+      if (error || !data) return null;
+      return data.map(v => ({
+        version: v.version,
+        publishedDate: v.published_date,
+        clauses: v.clauses,
+        shariahReviewed: v.shariah_reviewed,
+        legalReviewed: v.legal_reviewed,
+      }));
+    } catch { return null; }
+  },
+
   markNotificationsRead: async (investorId) => {
     try {
       await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
@@ -3181,13 +3219,42 @@ const TNCScreen=({nav,draft,setDraft,history,setHistory})=>{
 
   const canPublish=draft.shariahReviewed&&draft.legalReviewed;
 
-  const publish=()=>{
+  const publish=async ()=>{
     if(!canPublish)return;
-    setHistory(h=>[...h,{version:draft.pendingVersion,publishedDate:new Date().toISOString().slice(0,10),clauses:draft.clauses,shariahReviewed:draft.shariahReviewed,legalReviewed:draft.legalReviewed}]);
+    const publishedDate=new Date().toISOString().slice(0,10);
+    setHistory(h=>[...h,{version:draft.pendingVersion,publishedDate,clauses:draft.clauses,shariahReviewed:draft.shariahReviewed,legalReviewed:draft.legalReviewed}]);
     const [major,minor]=draft.pendingVersion.split(".").map(Number);
-    setDraft({pendingVersion:`${major}.${minor+1}`,clauses:draft.clauses,shariahReviewed:false,legalReviewed:false});
+    const nextVersion=`${major}.${minor+1}`;
+    setDraft({pendingVersion:nextVersion,clauses:draft.clauses,shariahReviewed:false,legalReviewed:false});
     setPublished(true);
     setTimeout(()=>setPublished(false),3000);
+    try {
+      if(draft._dbId){
+        // Mark the existing draft row as published
+        await supabase.from('tnc_versions').update({
+          is_draft:false,
+          published_date:publishedDate,
+        }).eq('id',draft._dbId);
+      } else {
+        // No tracked draft row — insert the published version directly
+        await supabase.from('tnc_versions').insert({
+          version:draft.pendingVersion,
+          published_date:publishedDate,
+          clauses:draft.clauses,
+          shariah_reviewed:draft.shariahReviewed,
+          legal_reviewed:draft.legalReviewed,
+          is_draft:false,
+        });
+      }
+      // Create the next draft row
+      await supabase.from('tnc_versions').insert({
+        version:nextVersion,
+        clauses:draft.clauses,
+        shariah_reviewed:false,
+        legal_reviewed:false,
+        is_draft:true,
+      });
+    } catch {}
   };
 
   return (
@@ -3515,6 +3582,8 @@ export default function NoorInvest() {
     api.getWithdrawals().then(data=>{ if(data) setWds(data); });
     api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
     api.getThresholds().then(data=>{ if(data) setLiveThresholds(data); });
+    api.getTncDraft().then(data=>{ if(data) setTncDraft(data); });
+    api.getTncHistory().then(data=>{ if(data) setTncHistory(data); });
   },[]);
 
   const nav=(v,data=null,user=null)=>{
