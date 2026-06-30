@@ -1932,13 +1932,13 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
   );
 
   // Load real investor data from Supabase
-  useState(() => {
-    if (user?.phone) {
-      api.getInvestor(user.phone).then(data => {
-        if (data) setInvestor(data);
+  useEffect(()=>{
+    if(user?.phone){
+      api.getInvestor(user.phone).then(data=>{
+        if(data) setInvestor(data);
       });
     }
-  });
+  },[]);
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
   const [notifs,setNotifs]=useState(NOTIFS);
