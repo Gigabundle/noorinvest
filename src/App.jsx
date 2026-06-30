@@ -764,7 +764,7 @@ const Landing = ({nav}) => (
       <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-blue-700/20 border border-blue-700/30 flex items-center justify-center"><Star className="w-4 h-4 text-blue-400"/></div><span className="text-white font-black text-lg">Noor<span className="text-blue-400">Invest</span></span></div>
       <div className="flex items-center gap-3">
         <button onClick={()=>nav(V.ADMIN_LOGIN)} className="text-xs text-white/40 hover:text-white/70 font-medium">Admin</button>
-        <button onClick={()=>nav(V.PHONE)} className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors">Sign In</button>
+        <button onClick={()=>nav(V.LOGIN)} className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors">Sign In</button>
       </div>
     </nav>
 
@@ -788,7 +788,7 @@ const Landing = ({nav}) => (
       </div>
 
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        <button onClick={()=>nav(V.PHONE)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all">Existing Investor <ArrowRight className="w-4 h-4"/></button>
+        <button onClick={()=>nav(V.LOGIN)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all">Existing Investor <ArrowRight className="w-4 h-4"/></button>
         <button onClick={()=>nav(V.REG)}   className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-xl text-sm transition-all">New Investor — Register</button>
       </div>
     </div>
@@ -863,6 +863,7 @@ const LoginScreen = ({nav,data}) => {
       </div>
       <Btn onClick={go} loading={loading}>Sign In Securely</Btn>
       <p className="text-center text-xs text-white/30">New? <button onClick={()=>nav(V.REG)} className="text-blue-400 font-semibold">Register here</button></p>
+      <p className="text-center text-xs text-white/30">First time signing in? <button onClick={()=>nav(V.PHONE)} className="text-blue-400 font-semibold">Find your account</button></p>
     </Shell>
   );
 };
@@ -2109,7 +2110,11 @@ const InvestorNav = ({active,onChange}) => {
 
 // ── Investor Portal Root ─────────────────────────────────────────────────────
 const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
-  const [view,setView]=useState(IV.HOME);
+  // Issue 2: Restore last sub-screen on refresh
+  const savedSubView = (() => {
+    try { return JSON.parse(localStorage.getItem('noorinvest_subview')||'null'); } catch { return null; }
+  })();
+  const [view,setView]=useState(savedSubView||IV.HOME);
   const [investor,setInvestor]=useState(
     ALL_INVESTORS.find(i=>i.phone===user?.phone)||
     ALL_INVESTORS.find(i=>i.id===user?.id)||
@@ -2118,22 +2123,45 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
     {...INIT_INVESTOR}
   );
 
+  // Issue 3: Loading state — show spinner until real data arrives
+  const [investorLoaded,setInvestorLoaded]=useState(false);
+
   // Load real investor data from Supabase
   useEffect(()=>{
     if(user?.phone){
       api.getInvestor(user.phone).then(data=>{
         if(data) setInvestor(data);
+        setInvestorLoaded(true);
       });
+    } else {
+      setInvestorLoaded(true);
     }
   },[]);
+
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
   const [notifs,setNotifs]=useState(NOTIFS);
   const [showNotifs,setShowNotifs]=useState(false);
   const hasUnread=notifs.some(n=>!n.read);
-  const nav=v=>setView(v);
+
+  // Issue 2: Save sub-screen on every nav change
+  const nav=v=>{
+    setView(v);
+    try { localStorage.setItem('noorinvest_subview',JSON.stringify(v)); } catch {}
+  };
+
   const markRead=()=>setNotifs(ns=>ns.map(n=>({...n,read:true})));
   const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement"};
+
+  // Issue 3: Show loading screen until real data arrives
+  if(!investorLoaded) return(
+    <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,#0A1628 0%,#0d1f3c 100%)"}}>
+      <div className="flex flex-col items-center gap-4">
+        <Loader className="w-10 h-10 text-blue-400 animate-spin"/>
+        <p className="text-white/40 text-sm font-medium">Loading your account…</p>
+      </div>
+    </div>
+  );
   return(
     <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
@@ -3597,8 +3625,8 @@ export default function NoorInvest() {
       try { localStorage.setItem('noorinvest_session',JSON.stringify({view:v,vd:newVd})); }
       catch {}
     } else if(v===V.LAND){
-      try { localStorage.removeItem('noorinvest_session'); }
-      catch {}
+      try { localStorage.removeItem('noorinvest_session'); } catch {}
+      try { localStorage.removeItem('noorinvest_subview'); } catch {}
     }
   };
 
