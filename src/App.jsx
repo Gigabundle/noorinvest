@@ -1125,10 +1125,10 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
           {capToList>0&&<Banner type="info" msg="Your capital will be automatically listed on the secondary market the moment you confirm."/>}
           <div className="flex gap-3">
             <button onClick={()=>setStep(1)} className="flex-1 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-sm">← Back</button>
-            <button onClick={()=>{
-              setInvestor(prev=>({...prev,profit_withdrawn:true}));
-              setWds(ws=>[...ws,{
-                id:`wd-${Date.now()}`,
+            <button onClick={async ()=>{
+              const wdId=`wd-${Date.now()}`;
+              const wdRecord={
+                id:wdId,
                 investorId:investor.id,
                 investor:investor.name,
                 bank:investor.bank,
@@ -1139,10 +1139,29 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                 date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
                 status:"pending",
                 adminNote:"",
-              }]);
+              };
+              // Save to Supabase
+              await api.submitWithdrawal({
+                id:wdId,
+                investor_id:investor.id,
+                investor_name:investor.name,
+                bank:investor.bank,
+                account:investor.account||investor.account_number,
+                type,
+                amount:profitAmt+capToList,
+                capital:capToList,
+                date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
+                status:"pending",
+                admin_note:"",
+              });
+              // Update local state
+              setInvestor(prev=>({...prev,profit_withdrawn:true}));
+              api.updateInvestor(investor.id,{profit_withdrawn:true});
+              setWds(ws=>[...ws,wdRecord]);
               if(capToList>0){
-                setSlots(ss=>[...ss,{
-                  slot_id:`slt-${Date.now()}`,
+                const slotId=`slt-${Date.now()}`;
+                const slotRecord={
+                  slot_id:slotId,
                   seller:investor.name,
                   cycle:INVESTOR_CYCLE.name,
                   capital:capToList,
@@ -1151,7 +1170,21 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                   days_in_fund:Math.max(0,Math.ceil((new Date()-new Date(investor.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))),
                   expected_rate:INVESTOR_CYCLE.profit_rate,
                   lock:false,sold:false,is_company:false,
-                }]);
+                };
+                setSlots(ss=>[...ss,slotRecord]);
+                // Save slot to Supabase
+                await supabase.from('market_slots').insert({
+                  slot_id:slotId,
+                  seller:investor.name,
+                  seller_investor_id:investor.id,
+                  cycle_name:INVESTOR_CYCLE.name,
+                  capital:capToList,
+                  stake_pct:Number(((capToList/INVESTOR_CYCLE.pool)*100).toFixed(3)),
+                  sale_amount:capToList,
+                  days_in_fund:slotRecord.days_in_fund,
+                  expected_rate:INVESTOR_CYCLE.profit_rate,
+                  lock:false,sold:false,is_company:false,
+                });
               }
               setDone(true);
             }} className="flex-1 py-3 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Confirm</button>
