@@ -1464,22 +1464,51 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) 
   const [lockDemo,setLockDemo]=useState(false);
   const [purchased,setPurchased]=useState([]);
 
-  const handleConfirm=(slotId,amt)=>{
+  // Refresh live slot data from Supabase every time this screen opens
+  useEffect(()=>{
+    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
+  },[]);
+
+  const handleConfirm=async (slotId,amt)=>{
     const slot=slots.find(s=>s.slot_id===slotId);
+    const payId=`pay-${Date.now()}`;
+    const amount=slot?.sale_amount||amt;
+    const cycleName=slot?.cycle||INVESTOR_CYCLE.name;
+    const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+
     setPurchased(p=>[...p,slotId]);
     setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,sold:true}:s));
     setPays(ps=>[...ps,{
-      id:`pay-${Date.now()}`,
+      id:payId,
       type:"slot_purchase",
       investor:investor.name,
       investorId:investor.id,
-      amount:slot?.sale_amount||amt,
-      cycle:slot?.cycle||INVESTOR_CYCLE.name,
-      date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
+      amount,
+      cycle:cycleName,
+      date:dateStr,
       status:"pending",
       receipt:null,
       rejectReason:"",
     }]);
+
+    // Save payment to Supabase
+    await api.submitPayment({
+      id:payId,
+      type:"slot_purchase",
+      investor_name:investor.name,
+      investor_id:investor.id,
+      amount,
+      cycle_name:cycleName,
+      date:dateStr,
+      status:"pending",
+      receipt:null,
+      reject_reason:"",
+    });
+
+    // Mark slot as sold in Supabase
+    try {
+      await supabase.from('market_slots').update({ sold:true }).eq('slot_id',slotId);
+    } catch {}
   };
 
   const handleList=({capital,sale_amount})=>{
@@ -2018,6 +2047,11 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
 };
 // ── Admin Panel Screens ──────────────────────────────────────────────────────
 const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
+  // Refresh live cycle data from Supabase every time the dashboard opens
+  useEffect(()=>{
+    api.getCycles().then(data=>{ if(data) setCycles(data); });
+  },[]);
+
   const totalPool=ALL_INVESTORS.reduce((s,i)=>s+i.capital,0);
   const openCycle=cycles.find(c=>c.status==="open");
   const closedCycles=cycles.filter(c=>c.status==="closed"&&c.total_profit!=null);
@@ -2211,11 +2245,17 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
 
 // ── CYCLES LIST ───────────────────────────────────────────────────────────────
 const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
-  const visible=cycles.filter(c=>c.status!=="archived");
-  const archived=cycles.filter(c=>c.status==="archived");
   const [showArchived,setShowArchived]=useState(false);
   const [reportOpenId,setReportOpenId]=useState(null);
   const [copiedReportId,setCopiedReportId]=useState(null);
+
+  // Refresh live cycle data from Supabase every time this screen opens
+  useEffect(()=>{
+    api.getCycles().then(data=>{ if(data) setCycles(data); });
+  },[]);
+
+  const visible=cycles.filter(c=>c.status!=="archived");
+  const archived=cycles.filter(c=>c.status==="archived");
   const toggleAccepting=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,accepting:!c.accepting}:c));
   const archiveCycle=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,prevStatus:c.status,prevAccepting:c.accepting,status:"archived",accepting:false}:c));
   const restoreCycle=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,status:c.prevStatus||"closed",accepting:c.prevAccepting||false,prevStatus:undefined,prevAccepting:undefined}:c));
@@ -2309,6 +2349,11 @@ const MembersScreen=({investors,setInvestors})=>{
   const [selectedIds,setSelectedIds]=useState([]);
   const [showStatement,setShowStatement]=useState(false);
   const [copied,setCopied]=useState(false);
+
+  // Refresh live investor data from Supabase every time this screen opens
+  useEffect(()=>{
+    api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
+  },[]);
 
   const filtered=investors.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search));
   const sortedFiltered=[...filtered].sort((a,b)=>{
