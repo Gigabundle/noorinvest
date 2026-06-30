@@ -227,6 +227,8 @@ const api = {
         .update({ email, password_hash: btoa(pw), has_account: true })
         .eq('phone', phone);
       if (error) return { ok: false, err: "UPDATE_FAILED" };
+      // Sync the real email onto the investor record (overwrites seed placeholder)
+      await supabase.from('investors').update({ email }).eq('phone', phone);
       return { ok: true };
     } catch {
       // fallback to in-memory
@@ -1874,14 +1876,14 @@ const ProfileScreen = ({investor,setInvestor}) => {
       const { data, error } = await supabase
         .from('users')
         .select('password_hash')
-        .eq('email', investor.email)
+        .eq('phone', investor.phone)
         .single();
       if (error || !data) { setPwErr("Could not verify your account. Try again."); return; }
       if (data.password_hash !== btoa(curPw)) { setPwErr("Current password is incorrect."); return; }
       const { error: updateError } = await supabase
         .from('users')
         .update({ password_hash: btoa(newPw) })
-        .eq('email', investor.email);
+        .eq('phone', investor.phone);
       if (updateError) { setPwErr("Failed to update password. Try again."); return; }
       setCurPw("");setNewPw("");setConfirmPw("");
       setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
