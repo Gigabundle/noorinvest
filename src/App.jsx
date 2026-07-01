@@ -2255,11 +2255,18 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   // Issue 3: Loading state — show spinner until real data arrives
   const [investorLoaded,setInvestorLoaded]=useState(false);
 
-  // Load real investor data from Supabase
+  // Load real investor data AND active listing from Supabase together
   useEffect(()=>{
     if(user?.phone){
-      api.getInvestor(user.phone).then(data=>{
-        if(data) setInvestor(data);
+      Promise.all([
+        api.getInvestor(user.phone),
+        api.getMarketSlots(),
+      ]).then(([invData, allSlots])=>{
+        if(invData) setInvestor(invData);
+        if(allSlots){
+          const own=allSlots.find(s=>!s.sold&&!s.lock&&(s.seller_investor_id===user.id||s.seller===invData?.name));
+          if(own) setMyListing({...own,status:"listed",days:getDays(own.sale_amount)});
+        }
         setInvestorLoaded(true);
       });
     } else {
@@ -2269,16 +2276,6 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
 
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
-
-  // 4D: Restore myListing from Supabase on load so it survives refresh
-  useEffect(()=>{
-    if(!investor?.id) return;
-    api.getMarketSlots().then(allSlots=>{
-      if(!allSlots) return;
-      const own=allSlots.find(s=>!s.sold&&!s.lock&&(s.seller_investor_id===investor.id||s.seller===investor.name));
-      if(own) setMyListing({...own,status:"listed",days:getDays(own.sale_amount)});
-    });
-  },[investor.id]);
 
   // 4E: Notification read state keyed by investor ID so different users don't share state
   const notifKey=`noorinvest_notifs_read_${investor.id}`;
