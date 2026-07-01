@@ -944,7 +944,7 @@ const AdminScreen = ({nav}) => {
 };
 
 // ── Investor Portal Data & Helpers ────────────────────────────────────────────
-const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement" };
+const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement", REPORTS:"inv_reports" };
 
 let INVESTOR_CYCLE        = CYCLES_DATA.find(c=>c.status==="closed")||CYCLES_DATA[0];
 let INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
@@ -1124,7 +1124,7 @@ const HomeScreen = ({nav,investor}) => {
             {icon:PlusCircle,   label:"Add to\nInvest",color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.INVEST},
             {icon:BarChart2,    label:"History",       color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.HISTORY},
             {icon:ArrowRightLeft,label:"Market",        color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.MARKET},
-            {icon:FileText,     label:"Statement",     color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.STATEMENT},
+            {icon:FileText,     label:"Reports",       color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.REPORTS},
           ].map(({icon:Icon,label,color,view},i)=>(
             <button key={i} onClick={()=>view&&nav(view)} className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all hover:scale-105 active:scale-95 ${color}`}>
               <Icon className="w-5 h-5"/><span className="text-[9px] font-bold uppercase tracking-wide leading-tight text-center whitespace-pre-line">{label}</span>
@@ -1213,15 +1213,21 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
       <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-10 h-10 text-emerald-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Submitted</h2>
         <p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">
-          {profitAmt>0&&`Profit of ${fmt(profitAmt)} sent for admin approval — paid within ${profitDays} days. `}
+          {profitAmt>0&&`Profit of ${fmt(profitAmt)} submitted for admin approval. `}
           {capToList>0&&`${fmt(capToList)} automatically listed on the secondary market.`}
         </p>
       </div>
-      <Card className="w-full text-left space-y-2">
-        <Label>Settlement Timeline</Label>
-        {profitAmt>0&&<div className="flex justify-between text-sm"><span className="text-white/40">Profit payment</span><span className="text-emerald-400 font-bold">Within {profitDays} days</span></div>}
-        {capToList>0&&<div className="flex justify-between text-sm"><span className="text-white/40">Capital listed</span><span className="text-blue-400 font-bold">Immediately</span></div>}
-        <div className="flex justify-between text-sm"><span className="text-white/40">Expected by</span><span className="text-white font-bold">{addDays(maxDays)}</span></div>
+      <Card className="w-full text-left space-y-3">
+        <Label>Request Summary</Label>
+        {[
+          ...(profitAmt>0?[["Profit to receive",fmt(profitAmt)],["Settlement window",`${profitDays} days`]]:[] ),
+          ...(capToList>0?[["Capital listed",fmt(capToList)]]:[] ),
+          ["Expected by",addDays(maxDays)],
+          ["Date",new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})],
+          ["Status","Pending Admin Approval"],
+        ].map(([l,v])=>(
+          <div key={l} className="flex justify-between text-sm gap-2"><span className="text-white/40 flex-shrink-0">{l}</span><span className={`font-semibold text-right ${l==="Status"?"text-amber-400":l.includes("receive")||l.includes("listed")?"text-emerald-400":"text-white"}`}>{v}</span></div>
+        ))}
       </Card>
       <button onClick={()=>nav(IV.HOME)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Back to Home</button>
     </div>
@@ -1831,6 +1837,7 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
   const [joinedWaiting,setJoinedWaiting]=useState(!!waitingList);
   const [showWaitConfirm,setShowWaitConfirm]=useState(false);
   const [transferring,setTransferring]=useState(false);
+  const [submitted,setSubmitted]=useState(null);
   const parsed=parseI(amount);
   const next=()=>{if(parsed<selectedCycle?.min_investment){setErr(`Minimum is ${fmt(selectedCycle.min_investment)}`);return;}if(parsed>selectedCycle?.max_investment){setErr(`Maximum is ${fmt(selectedCycle.max_investment)}`);return;}setErr("");setStep(2);};
   const handleJoinWaiting=()=>{setWaitingList({cycle:selectedCycle?.name||INVESTOR_FUTURE_CYCLE.name,position:1,joined:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});setJoinedWaiting(true);setShowWaitConfirm(false);};
@@ -1978,11 +1985,27 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
           // Update local state
           setPays(ps=>[...ps,payRecord]);
           setTransferring(false);
-          setSelectedCycle(null);setStep(1);setAmount("");
+          setSubmitted({cycle:selectedCycle.name,amount:parsed,ref:payId,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});
         }} disabled={transferring} className={`w-full py-3.5 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all ${transferring?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{transferring?<><Loader className="w-4 h-4 animate-spin"/>Submitting…</>:<>Done — I've Made This Transfer</>}</button>
       </div>
     );
   }
+
+  // 4A: Investment status screen
+  if(submitted) return(
+    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-8">
+      <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-10 h-10 text-emerald-400"/></div>
+      <div><h2 className="text-xl font-black text-white">Transfer Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your transfer has been recorded. Admin will verify and activate your slot within 24 hours.</p></div>
+      <Card className="w-full text-left space-y-3">
+        <Label>Submission Summary</Label>
+        {[["Cycle",submitted.cycle],["Amount",fmt(submitted.amount)],["Date",submitted.date],["Reference",submitted.ref.slice(-8).toUpperCase()],["Status","Pending Admin Verification"]].map(([l,v])=>(
+          <div key={l} className="flex justify-between text-sm gap-2"><span className="text-white/40 flex-shrink-0">{l}</span><span className={`font-semibold text-right ${l==="Status"?"text-amber-400":"text-white"}`}>{v}</span></div>
+        ))}
+      </Card>
+      <Banner type="info" msg="Keep the reference number above as proof of your transfer. You will be notified once your slot is activated."/>
+      <button onClick={()=>setSubmitted(null)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">View Other Investments</button>
+    </div>
+  );
 
   return(
     <div className="space-y-5 pb-24">
@@ -2240,6 +2263,51 @@ const InvestorNav = ({active,onChange}) => {
 };
 
 // ── Investor Portal Root ─────────────────────────────────────────────────────
+// ── 4B: Investor Performance Reports Screen ──────────────────────────────────
+const ReportsScreen = ({nav}) => {
+  const [pdfs,setPdfs]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    supabase.from('performance_pdfs').select('*').order('uploaded_date',{ascending:false})
+      .then(({data})=>{ if(data) setPdfs(data); setLoading(false); })
+      .catch(()=>setLoading(false));
+  },[]);
+
+  return(
+    <div className="space-y-5 pb-24">
+      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
+      <h2 className="text-xl font-black text-white">Performance Reports</h2>
+      <p className="text-sm text-white/40">Monthly profit-sharing reports uploaded by admin. Tap any report to download.</p>
+      {loading&&<div className="flex items-center justify-center py-8"><Loader className="w-6 h-6 text-blue-400 animate-spin"/></div>}
+      {!loading&&pdfs.length===0&&(
+        <Card className="text-center py-8 space-y-2">
+          <FileText className="w-8 h-8 text-white/20 mx-auto"/>
+          <p className="text-sm text-white/40">No reports uploaded yet.</p>
+          <p className="text-[11px] text-white/25">Reports will appear here once admin uploads them.</p>
+        </Card>
+      )}
+      {!loading&&pdfs.length>0&&(
+        <div className="space-y-3">
+          {pdfs.map(pdf=>(
+            <Card key={pdf.id} className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><FileText className="w-5 h-5 text-blue-400"/></div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white truncate">{pdf.cycle_name||pdf.cycle_id}</p>
+                <p className="text-[10px] text-white/40">{pdf.month_label} · Uploaded {fmtDate(pdf.uploaded_date)}</p>
+              </div>
+              {pdf.file_url
+                ? <a href={pdf.file_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold rounded-lg flex-shrink-0">Download</a>
+                : <span className="px-3 py-1.5 bg-white/5 text-white/30 text-xs font-bold rounded-lg flex-shrink-0">Unavailable</span>
+              }
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) => {
   // Issue 2: Restore last sub-screen on refresh
   const savedSubView = (() => {
@@ -2297,7 +2365,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     api.markNotificationsRead(investor.id);
     try { localStorage.setItem(notifKey,'true'); } catch {}
   };
-  const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement"};
+  const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement",[IV.REPORTS]:"Performance Reports"};
   // Capital displayed to investor = actual capital minus any amount currently listed on market
   const displayCapital = Math.max(0, (investor.capital||0) - (myListing&&!myListing.sold?myListing.capital||0:0));
   const displayInvestor = {...investor, capital:displayCapital};
@@ -2335,6 +2403,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
         {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={displayInvestor}/>}
+        {view===IV.REPORTS  &&<ReportsScreen nav={nav}/>}
       </div>
       <InvestorNav active={view} onChange={nav}/>
       {showNotifs&&<NotifPanel onClose={()=>setShowNotifs(false)} onMarkRead={markRead} notifs={notifs}/>}
