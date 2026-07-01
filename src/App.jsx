@@ -1982,9 +1982,11 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
             receipt:null,
             reject_reason:"",
           });
-          // Update local state
           setPays(ps=>[...ps,payRecord]);
           setTransferring(false);
+          setSelectedCycle(null);
+          setStep(1);
+          setAmount("");
           setSubmitted({cycle:selectedCycle.name,amount:parsed,ref:payId,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});
         }} disabled={transferring} className={`w-full py-3.5 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all ${transferring?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{transferring?<><Loader className="w-4 h-4 animate-spin"/>Submitting…</>:<>Done — I've Made This Transfer</>}</button>
       </div>
