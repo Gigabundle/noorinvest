@@ -1857,6 +1857,22 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
         }))
     : [INVESTOR_NEXT_CYCLE, INVESTOR_FUTURE_CYCLE];
 
+  // 4A: Investment status screen — checked FIRST before any other render
+  if(submitted) return(
+    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-8">
+      <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-10 h-10 text-emerald-400"/></div>
+      <div><h2 className="text-xl font-black text-white">Transfer Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your transfer has been recorded. Admin will verify and activate your slot within 24 hours.</p></div>
+      <Card className="w-full text-left space-y-3">
+        <Label>Submission Summary</Label>
+        {[["Cycle",submitted.cycle],["Amount",fmt(submitted.amount)],["Date",submitted.date],["Reference",submitted.ref.slice(-8).toUpperCase()],["Status","Pending Admin Verification"]].map(([l,v])=>(
+          <div key={l} className="flex justify-between text-sm gap-2"><span className="text-white/40 flex-shrink-0">{l}</span><span className={`font-semibold text-right ${l==="Status"?"text-amber-400":"text-white"}`}>{v}</span></div>
+        ))}
+      </Card>
+      <Banner type="info" msg="Keep the reference number above as proof of your transfer. You will be notified once your slot is activated."/>
+      <button onClick={()=>setSubmitted(null)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">View Other Investments</button>
+    </div>
+  );
+
   if(selectedCycle&&step===1){
     const fill=((selectedCycle.current_pool/selectedCycle.target_pool)*100).toFixed(1);
     return(
@@ -1992,22 +2008,6 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
       </div>
     );
   }
-
-  // 4A: Investment status screen
-  if(submitted) return(
-    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-8">
-      <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-10 h-10 text-emerald-400"/></div>
-      <div><h2 className="text-xl font-black text-white">Transfer Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your transfer has been recorded. Admin will verify and activate your slot within 24 hours.</p></div>
-      <Card className="w-full text-left space-y-3">
-        <Label>Submission Summary</Label>
-        {[["Cycle",submitted.cycle],["Amount",fmt(submitted.amount)],["Date",submitted.date],["Reference",submitted.ref.slice(-8).toUpperCase()],["Status","Pending Admin Verification"]].map(([l,v])=>(
-          <div key={l} className="flex justify-between text-sm gap-2"><span className="text-white/40 flex-shrink-0">{l}</span><span className={`font-semibold text-right ${l==="Status"?"text-amber-400":"text-white"}`}>{v}</span></div>
-        ))}
-      </Card>
-      <Banner type="info" msg="Keep the reference number above as proof of your transfer. You will be notified once your slot is activated."/>
-      <button onClick={()=>setSubmitted(null)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">View Other Investments</button>
-    </div>
-  );
 
   return(
     <div className="space-y-5 pb-24">
