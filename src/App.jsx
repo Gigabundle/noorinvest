@@ -3575,7 +3575,12 @@ const ProfitCSVScreen=({nav,cycles,investors,onApply})=>{
   const [copied,setCopied]=useState(false);
 
   const cycle=cycles.find(c=>c.id===cycleId);
-  const members=cycle?investors.filter(i=>(cycle.member_ids||[]).includes(i.id)&&i.status==="active"):[];
+  // Fall back to all active investors when cycle.member_ids is not populated from DB
+  const members=cycle
+    ? (cycle.member_ids?.length>0
+        ? investors.filter(i=>cycle.member_ids.includes(i.id)&&i.status==="active")
+        : investors.filter(i=>i.status==="active"))
+    : [];
   const totalProfitNum=parseAmt(totalProfit);
   const templateCSV=cycle?buildTemplateCSV(members):"";
 
