@@ -944,7 +944,7 @@ const AdminScreen = ({nav}) => {
 };
 
 // ── Investor Portal Data & Helpers ────────────────────────────────────────────
-const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement", REPORTS:"inv_reports" };
+const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement", REPORTS:"inv_reports", REQUESTS:"inv_requests" };
 
 let INVESTOR_CYCLE        = CYCLES_DATA.find(c=>c.status==="closed")||CYCLES_DATA[0];
 let INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
@@ -1124,7 +1124,7 @@ const HomeScreen = ({nav,investor}) => {
             {icon:PlusCircle,   label:"Add to\nInvest",color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.INVEST},
             {icon:BarChart2,    label:"History",       color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.HISTORY},
             {icon:ArrowRightLeft,label:"Market",        color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.MARKET},
-            {icon:FileText,     label:"Reports",       color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.REPORTS},
+            {icon:Bell,         label:"Requests",      color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.REQUESTS},
           ].map(({icon:Icon,label,color,view},i)=>(
             <button key={i} onClick={()=>view&&nav(view)} className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all hover:scale-105 active:scale-95 ${color}`}>
               <Icon className="w-5 h-5"/><span className="text-[9px] font-bold uppercase tracking-wide leading-tight text-center whitespace-pre-line">{label}</span>
@@ -2265,6 +2265,113 @@ const InvestorNav = ({active,onChange}) => {
 };
 
 // ── Investor Portal Root ─────────────────────────────────────────────────────
+// ── Investor Requests Screen ──────────────────────────────────────────────────
+const RequestsScreen = ({nav, investor}) => {
+  const [payments,setPayments]=useState([]);
+  const [withdrawals,setWithdrawals]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [activeTab,setActiveTab]=useState("all");
+
+  useEffect(()=>{
+    Promise.all([
+      supabase.from('payments').select('*').eq('investor_id',investor.id).order('created_at',{ascending:false}),
+      supabase.from('withdrawals').select('*').eq('investor_id',investor.id).order('created_at',{ascending:false}),
+    ]).then(([{data:pays},{data:wds}])=>{
+      if(pays) setPayments(pays);
+      if(wds) setWithdrawals(wds);
+      setLoading(false);
+    }).catch(()=>setLoading(false));
+  },[investor.id]);
+
+  const allRequests=[
+    ...payments.map(p=>({
+      id:p.id,
+      kind:"Investment",
+      label:p.cycle_name||p.cycle,
+      amount:Number(p.amount),
+      status:p.status,
+      date:p.date,
+      note:p.reject_reason||"",
+    })),
+    ...withdrawals.map(w=>({
+      id:w.id,
+      kind:w.type==="profit_only"?"Profit Withdrawal":w.type==="capital_mid"?"Capital Listing":"Withdrawal",
+      label:w.investor_name||investor.name,
+      amount:Number(w.amount),
+      status:w.status,
+      date:w.date,
+      note:w.admin_note||"",
+    })),
+  ].sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  const tabs=[{id:"all",label:"All"},{id:"pending",label:"Pending"},{id:"approved",label:"Approved"},{id:"rejected",label:"Rejected"}];
+  const filtered=activeTab==="all"?allRequests:allRequests.filter(r=>r.status===activeTab);
+
+  const statusStyle={
+    pending:"bg-amber-500/15 border-amber-500/20 text-amber-400",
+    approved:"bg-emerald-500/15 border-emerald-500/20 text-emerald-400",
+    rejected:"bg-red-500/15 border-red-500/20 text-red-400",
+  };
+
+  return(
+    <div className="space-y-5 pb-24">
+      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
+      <h2 className="text-xl font-black text-white">My Requests</h2>
+
+      {/* Tabs */}
+      <div className="flex gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setActiveTab(t.id)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab===t.id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {loading&&<div className="flex items-center justify-center py-8"><Loader className="w-6 h-6 text-blue-400 animate-spin"/></div>}
+
+      {!loading&&filtered.length===0&&(
+        <Card className="text-center py-8 space-y-2">
+          <Bell className="w-8 h-8 text-white/20 mx-auto"/>
+          <p className="text-sm text-white/40">No {activeTab==="all"?"requests":activeTab+" requests"} yet.</p>
+        </Card>
+      )}
+
+      {!loading&&filtered.length>0&&(
+        <div className="space-y-3">
+          {filtered.map(r=>(
+            <Card key={r.id} className="space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-white">{r.kind}</p>
+                  <p className="text-[11px] text-white/40 truncate">{r.label}</p>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border flex-shrink-0 capitalize ${statusStyle[r.status]||statusStyle.pending}`}>{r.status}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-white/40">Amount</span>
+                <span className="text-white font-bold">{fmt(r.amount)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-white/40">Date</span>
+                <span className="text-white/60">{r.date}</span>
+              </div>
+              {r.note&&(
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2.5">
+                  <p className="text-[11px] text-red-300 leading-relaxed"><strong>Note:</strong> {r.note}</p>
+                </div>
+              )}
+              <div className="flex justify-between text-[10px] text-white/25">
+                <span>Ref: {r.id.slice(-8).toUpperCase()}</span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── 4B: Investor Performance Reports Screen ──────────────────────────────────
 const ReportsScreen = ({nav}) => {
   const [pdfs,setPdfs]=useState([]);
@@ -2367,7 +2474,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     api.markNotificationsRead(investor.id);
     try { localStorage.setItem(notifKey,'true'); } catch {}
   };
-  const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement",[IV.REPORTS]:"Performance Reports"};
+  const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement",[IV.REPORTS]:"Performance Reports",[IV.REQUESTS]:"My Requests"};
   // Capital displayed to investor = actual capital minus any amount currently listed on market
   const displayCapital = Math.max(0, (investor.capital||0) - (myListing&&!myListing.sold?myListing.capital||0:0));
   const displayInvestor = {...investor, capital:displayCapital};
@@ -2406,6 +2513,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
         {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={displayInvestor}/>}
         {view===IV.REPORTS  &&<ReportsScreen nav={nav}/>}
+        {view===IV.REQUESTS &&<RequestsScreen nav={nav} investor={investor}/>}
       </div>
       <InvestorNav active={view} onChange={nav}/>
       {showNotifs&&<NotifPanel onClose={()=>setShowNotifs(false)} onMarkRead={markRead} notifs={notifs}/>}
