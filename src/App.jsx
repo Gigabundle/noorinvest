@@ -2078,11 +2078,26 @@ const ProfileScreen = ({investor,setInvestor}) => {
       });
     } catch {}
   };
-  const cancel=()=>{setDraft({...investor,account_number:investor.account_number||investor.account||"",account_name:investor.account_name||investor.name||""});setEditing(false);};
+  const cancel=()=>{setDraft({...investor,account_number:investor.account_number||investor.account||"",account_name:investor.account_name||investor.name||""});setEditing(false);setBankUnlocked(false);setBankPw("");setBankPwErr("");};
 
   const [showPwForm,setShowPwForm]=useState(false);
   const [curPw,setCurPw]=useState(""); const [newPw,setNewPw]=useState(""); const [confirmPw,setConfirmPw]=useState("");
   const [pwErr,setPwErr]=useState(""); const [pwSaved,setPwSaved]=useState(false);
+
+  // 5B: Bank fields require password unlock
+  const [bankUnlocked,setBankUnlocked]=useState(false);
+  const [bankPw,setBankPw]=useState("");
+  const [bankPwErr,setBankPwErr]=useState("");
+  const [showBankUnlock,setShowBankUnlock]=useState(false);
+
+  const verifyBankPw=async()=>{
+    setBankPwErr("");
+    try {
+      const { data } = await supabase.from('users').select('password_hash').eq('phone',investor.phone).single();
+      if(!data||data.password_hash!==btoa(bankPw)){setBankPwErr("Incorrect password.");return;}
+      setBankUnlocked(true);setShowBankUnlock(false);setBankPw("");
+    } catch { setBankPwErr("Could not verify. Try again."); }
+  };
   const changePw=async ()=>{
     setPwErr("");
     if(newPw.length<6){setPwErr("New password must be at least 6 characters.");return;}
@@ -2136,10 +2151,33 @@ const ProfileScreen = ({investor,setInvestor}) => {
       </Card>
 
       <Card className="space-y-4">
-        <Label>Bank Details</Label>
+        <div className="flex items-center justify-between">
+          <Label>Bank Details</Label>
+          {editing&&!bankUnlocked&&(
+            <button onClick={()=>setShowBankUnlock(true)} className="text-[10px] text-amber-400 font-bold border border-amber-600/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+              <Lock className="w-3 h-3"/>Unlock to Edit
+            </button>
+          )}
+          {editing&&bankUnlocked&&(
+            <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3"/>Unlocked</span>
+          )}
+        </div>
+
+        {/* Bank unlock password modal */}
+        {showBankUnlock&&(
+          <div className="bg-amber-950/40 border border-amber-600/30 rounded-xl p-3.5 space-y-3">
+            <p className="text-xs text-amber-300 font-semibold">Enter your password to edit bank details</p>
+            <Input label="" type="password" value={bankPw} onChange={setBankPw} icon={Lock} placeholder="Your current password" error={bankPwErr}/>
+            <div className="flex gap-2">
+              <button onClick={()=>{setShowBankUnlock(false);setBankPw("");setBankPwErr("");}} className="flex-1 py-2 bg-white/5 border border-white/10 text-white/60 font-bold rounded-xl text-xs">Cancel</button>
+              <button onClick={verifyBankPw} className="flex-1 py-2 bg-amber-700 hover:bg-amber-600 text-white font-bold rounded-xl text-xs">Verify</button>
+            </div>
+          </div>
+        )}
+
         <div>
           <p className="text-[10px] font-bold tracking-widest uppercase text-white/40 mb-1">Bank Name</p>
-          {editing
+          {editing&&bankUnlocked
             ? <select value={draft.bank} onChange={e=>sd("bank")(e.target.value)} className="w-full bg-white/5 border border-blue-600/40 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-600/30">
                 <option value="" className="bg-slate-900">Select bank</option>
                 {BANKS.map(b=> <option key={b} value={b} className="bg-slate-900">{b}</option>)}
@@ -2147,8 +2185,8 @@ const ProfileScreen = ({investor,setInvestor}) => {
             : <p className="text-sm text-white font-medium">{draft.bank}</p>
           }
         </div>
-        <EditField label="Account No."   value={draft.account_number} onChange={sd("account_number")} editing={editing}/>
-        <EditField label="Account Name"  value={draft.account_name}   onChange={sd("account_name")}   editing={editing} hint="Must match your bank record"/>
+        <EditField label="Account No."   value={draft.account_number} onChange={sd("account_number")} editing={editing&&bankUnlocked}/>
+        <EditField label="Account Name"  value={draft.account_name}   onChange={sd("account_name")}   editing={editing&&bankUnlocked} hint="Must match your bank record"/>
       </Card>
 
       <Card className="space-y-4">
@@ -2653,11 +2691,31 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
   const [ticked,setTicked]=useState({});
   const [search,setSearch]=useState("");
   const [done,setDone]=useState(false);
-  const filtered=ALL_INVESTORS.filter(i=>i.status==="active"&&!(cycle.member_ids||[]).includes(i.id)&&(i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search)));
-  const allSelected=filtered.length>0&&filtered.every(i=>ticked[i.id]!==undefined);
+  const [lockedIds,setLockedIds]=useState(new Set());
 
-  const toggle=inv=>{setTicked(t=>{if(t[inv.id]!==undefined){const n={...t};delete n[inv.id];return n;}return{...t,[inv.id]:String(netCap(inv))};});};
-  const toggleAll=()=>{if(allSelected){setTicked(t=>{const n={...t};filtered.forEach(i=>delete n[i.id]);return n;});}else{setTicked(t=>{const n={...t};filtered.forEach(i=>{if(n[i.id]===undefined)n[i.id]=String(netCap(i));});return n;});}};
+  // 5C: Load investors already in an active/open cycle to block them
+  useEffect(()=>{
+    supabase.from('cycle_members')
+      .select('investor_id, cycles!inner(status)')
+      .in('cycles.status',['open'])
+      .neq('cycle_id', cycle.id)
+      .then(({data})=>{
+        if(data) setLockedIds(new Set(data.map(r=>r.investor_id)));
+      }).catch(()=>{});
+  },[cycle.id]);
+
+  const filtered=ALL_INVESTORS.filter(i=>i.status==="active"&&!(cycle.member_ids||[]).includes(i.id)&&(i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search)));
+  const allSelected=filtered.filter(i=>!lockedIds.has(i.id)).length>0&&filtered.filter(i=>!lockedIds.has(i.id)).every(i=>ticked[i.id]!==undefined);
+
+  const toggle=inv=>{
+    if(lockedIds.has(inv.id)) return; // 5C: block locked investors
+    setTicked(t=>{if(t[inv.id]!==undefined){const n={...t};delete n[inv.id];return n;}return{...t,[inv.id]:String(netCap(inv))};});
+  };
+  const toggleAll=()=>{
+    const unlocked=filtered.filter(i=>!lockedIds.has(i.id));
+    if(allSelected){setTicked(t=>{const n={...t};unlocked.forEach(i=>delete n[i.id]);return n;});}
+    else{setTicked(t=>{const n={...t};unlocked.forEach(i=>{if(n[i.id]===undefined)n[i.id]=String(netCap(i));});return n;});}
+  };;
   const updateAmt=(id,val)=>setTicked(t=>({...t,[id]:val.replace(/[^\d,]/g,"")}));
   const tickedCount=Object.keys(ticked).length;
 
@@ -2684,15 +2742,20 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
       <div className="space-y-2">
         {filtered.map(inv=>{
           const isSel=ticked[inv.id]!==undefined;
+          const isLocked=lockedIds.has(inv.id);
           const net=netCap(inv);
           return (
-            <div key={inv.id} className={`rounded-xl border transition-all ${isSel?"border-blue-600 bg-blue-700/10":"border-white/10 bg-white/5"}`}>
-              <button onClick={()=>toggle(inv)} className="w-full flex items-center gap-3 p-3 text-left">
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${isSel?"bg-blue-600 border-blue-600":"border-white/30"}`}>{isSel&&<CheckCircle className="w-3.5 h-3.5 text-white"/>}</div>
+            <div key={inv.id} className={`rounded-xl border transition-all ${isLocked?"border-white/5 bg-white/3 opacity-50":isSel?"border-blue-600 bg-blue-700/10":"border-white/10 bg-white/5"}`}>
+              <button onClick={()=>toggle(inv)} disabled={isLocked} className="w-full flex items-center gap-3 p-3 text-left disabled:cursor-not-allowed">
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${isLocked?"border-white/10":isSel?"bg-blue-600 border-blue-600":"border-white/30"}`}>{isSel&&<CheckCircle className="w-3.5 h-3.5 text-white"/>}</div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-white truncate">{inv.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-bold text-white truncate">{inv.name}</p>
+                    {isLocked&&<span className="text-[9px] font-bold text-amber-400 border border-amber-600/30 px-1.5 py-0.5 rounded-full flex-shrink-0">Locked</span>}
+                  </div>
                   <p className="text-[10px] text-white/40">
-                    Prev: {fmt(inv.capital)}{inv.approved_withdrawals>0&&<span className="text-amber-400"> − {fmt(inv.approved_withdrawals)}</span>} → <span className="text-blue-400 font-bold">Net: {fmt(net)}</span>
+                    {isLocked?"Already in an active cycle":
+                    <>Prev: {fmt(inv.capital)}{inv.approved_withdrawals>0&&<span className="text-amber-400"> − {fmt(inv.approved_withdrawals)}</span>} → <span className="text-blue-400 font-bold">Net: {fmt(net)}</span></>}
                   </p>
                 </div>
               </button>
@@ -3942,6 +4005,42 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
 export default function NoorInvest() {
   const [view,setView]=useState(V.LAND);
   const [vd,setVd]=useState(null);
+
+  // 5A: Auto-logout after 15 minutes of inactivity
+  const [showIdleWarning,setShowIdleWarning]=useState(false);
+  const idleTimer=useRef(null);
+  const warnTimer=useRef(null);
+  const IDLE_MS=13*60*1000;  // 13 min → show warning
+  const WARN_MS=2*60*1000;   // 2 min warning → then logout
+
+  const resetIdle=useRef(null);
+  useEffect(()=>{
+    resetIdle.current=()=>{
+      clearTimeout(idleTimer.current);
+      clearTimeout(warnTimer.current);
+      setShowIdleWarning(false);
+      idleTimer.current=setTimeout(()=>{
+        setShowIdleWarning(true);
+        warnTimer.current=setTimeout(()=>{
+          setShowIdleWarning(false);
+          try{localStorage.removeItem('noorinvest_session');localStorage.removeItem('noorinvest_subview');localStorage.removeItem('noorinvest_market_tab');}catch{}
+          setView(V.LAND);setVd(null);
+        },WARN_MS);
+      },IDLE_MS);
+    };
+  },[]);
+
+  useEffect(()=>{
+    const events=["mousedown","mousemove","keydown","touchstart","scroll","click"];
+    const handler=()=>resetIdle.current?.();
+    events.forEach(e=>window.addEventListener(e,handler,{passive:true}));
+    resetIdle.current?.();
+    return()=>{
+      events.forEach(e=>window.removeEventListener(e,handler));
+      clearTimeout(idleTimer.current);
+      clearTimeout(warnTimer.current);
+    };
+  },[]);
   const [tncDraft,setTncDraftRaw]=useState(INIT_TNC_DRAFT);
   const tncDraftEdited=useRef(false);
   const setTncDraft=(updater)=>{ tncDraftEdited.current=true; setTncDraftRaw(updater); };
@@ -4000,5 +4099,15 @@ export default function NoorInvest() {
     [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} cycles={cycles} setCycles={setCycles} onSignOut={()=>nav(V.LAND)}/>,
     [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} cycles={cycles} onSignOut={()=>nav(V.LAND)}/>,
   };
-  return <div className="font-sans antialiased">{screens[view]||<Landing nav={nav}/>}</div>;
+  return (
+    <div className="font-sans antialiased">
+      {showIdleWarning&&(view===V.IDASH||view===V.ADMIN)&&(
+        <div className="fixed inset-x-0 top-0 z-50 p-3 bg-amber-950/95 border-b border-amber-600 flex items-center justify-between gap-3">
+          <p className="text-xs text-amber-200 flex-1">You've been inactive. You'll be signed out in 2 minutes.</p>
+          <button onClick={()=>resetIdle.current?.()} className="text-xs font-bold text-amber-400 border border-amber-600 px-2.5 py-1 rounded-lg hover:bg-amber-900">Stay Signed In</button>
+        </div>
+      )}
+      {screens[view]||<Landing nav={nav}/>}
+    </div>
+  );
 }
