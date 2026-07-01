@@ -1707,6 +1707,9 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
       const restored=(investor.capital||0)+(myListing.capital||0);
       setInvestor(prev=>({...prev,capital:restored}));
       try { await supabase.from('investors').update({capital:restored}).eq('id',investor.id); } catch {}
+      // Mark slot as withdrawn in Supabase so refresh doesn't restore it
+      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch {}
+      setSlots(ss=>ss.filter(s=>s.slot_id!==myListing.slot_id));
     }
     setMyListing(null);
   };
@@ -2270,7 +2273,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     if(!investor?.id) return;
     api.getMarketSlots().then(allSlots=>{
       if(!allSlots) return;
-      const own=allSlots.find(s=>!s.sold&&(s.seller_investor_id===investor.id||s.seller===investor.name));
+      const own=allSlots.find(s=>!s.sold&&!s.lock&&(s.seller_investor_id===investor.id||s.seller===investor.name));
       if(own) setMyListing({...own,status:"listed",days:getDays(own.sale_amount)});
     });
   },[investor.id]);
