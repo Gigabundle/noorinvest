@@ -3565,7 +3565,7 @@ const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
 };
 
 // ── PROFIT CSV UPLOAD ──────────────────────────────────────────────────────────
-const ProfitCSVScreen=({nav,cycles,investors,onApply})=>{
+const ProfitCSVScreen=({nav,cycles,investors:investorsProp,onApply})=>{
   const [cycleId,setCycleId]=useState(cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"");
   const [totalProfit,setTotalProfit]=useState("");
   const [parsed,setParsed]=useState(null);
@@ -3573,14 +3573,16 @@ const ProfitCSVScreen=({nav,cycles,investors,onApply})=>{
   const [applied,setApplied]=useState(false);
   const [showTemplate,setShowTemplate]=useState(false);
   const [copied,setCopied]=useState(false);
+  const [investors,setInvestors]=useState(investorsProp?.length>0 ? investorsProp : ALL_INVESTORS);
+
+  // Load investors fresh from Supabase on mount so CSV matching always works
+  useEffect(()=>{
+    api.getAllInvestors().then(data=>{ if(data&&data.length>0) setInvestors(data); });
+  },[]);
 
   const cycle=cycles.find(c=>c.id===cycleId);
-  // Fall back to all active investors when cycle.member_ids is not populated from DB
-  const members=cycle
-    ? (cycle.member_ids?.length>0
-        ? investors.filter(i=>cycle.member_ids.includes(i.id)&&i.status==="active")
-        : investors.filter(i=>i.status==="active"))
-    : [];
+  // Use all active investors since cycle.member_ids is not reliably populated
+  const members=investors.filter(i=>i.status==="active");
   const totalProfitNum=parseAmt(totalProfit);
   const templateCSV=cycle?buildTemplateCSV(members):"";
 
