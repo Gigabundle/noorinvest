@@ -226,24 +226,23 @@ const api = {
 
   createAccount: async (phone, email, pw) => {
     try {
-      // Check email not already taken
       const { data: existing } = await supabase
         .from('users')
         .select('id')
         .eq('email', email)
         .maybeSingle();
       if (existing) return { ok: false, err: "EMAIL_TAKEN" };
-      // Hash password using btoa (simple encoding for now, bcrypt needs backend)
+      // Hash password server-side with bcrypt
+      const { data: hashed } = await supabase.rpc('hash_password', { plaintext: pw });
+      if (!hashed) return { ok: false, err: "UPDATE_FAILED" };
       const { error } = await supabase
         .from('users')
-        .update({ email, password_hash: btoa(pw), has_account: true })
+        .update({ email, password_hash: hashed, has_account: true })
         .eq('phone', phone);
       if (error) return { ok: false, err: "UPDATE_FAILED" };
-      // Sync the real email onto the investor record (overwrites seed placeholder)
       await supabase.from('investors').update({ email }).eq('phone', phone);
       return { ok: true };
     } catch {
-      // fallback to in-memory
       const i = store.findIndex(u => u.phone === phone);
       if (i < 0) return { ok: false, err: "NOT_FOUND" };
       if ([...store, ...newUsers].some(u => u.email === email)) return { ok: false, err: "EMAIL_TAKEN" };
@@ -260,8 +259,12 @@ const api = {
         .eq('email', email)
         .single();
       if (error || !data) return { ok: false };
-      if (data.password_hash !== btoa(pw)) return { ok: false };
-      // Get investor record
+      // Server-side bcrypt verification
+      const { data: valid } = await supabase.rpc('verify_password', {
+        plaintext: pw,
+        hash: data.password_hash
+      });
+      if (!valid) return { ok: false };
       const { data: inv } = await supabase
         .from('investors')
         .select('id')
@@ -283,7 +286,12 @@ const api = {
         .eq('role', 'admin')
         .single();
       if (error || !data) return { ok: false };
-      if (data.password_hash !== btoa(pw)) return { ok: false };
+      // Server-side bcrypt verification
+      const { data: valid } = await supabase.rpc('verify_password', {
+        plaintext: pw,
+        hash: data.password_hash
+      });
+      if (!valid) return { ok: false };
       return { ok: true, name: data.name };
     } catch {
       return email === "admin@noorinvest.ng" && pw === "Admin@2025" ? { ok: true, name: "Ibrahim Usman" } : { ok: false };
@@ -306,6 +314,9 @@ const api = {
         .eq('phone', data.phone)
         .maybeSingle();
       if (existingPhone) return { ok: false, err: "PHONE_TAKEN" };
+      // Hash password server-side with bcrypt
+      const { data: hashed } = await supabase.rpc('hash_password', { plaintext: data.password });
+      if (!hashed) return { ok: false, err: "REGISTER_FAILED" };
       // Insert new user
       const { error } = await supabase
         .from('users')
@@ -313,7 +324,7 @@ const api = {
           phone: data.phone,
           name: data.fullName || data.name,
           email: data.email,
-          password_hash: btoa(data.password),
+          password_hash: hashed,
           has_account: true,
           role: 'investor',
         });
@@ -773,7 +784,7 @@ const Landing = ({nav}) => (
       <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-blue-700/20 border border-blue-700/30 flex items-center justify-center"><Star className="w-4 h-4 text-blue-400"/></div><span className="text-white font-black text-lg">Noor<span className="text-blue-400">Invest</span></span></div>
       <div className="flex items-center gap-3">
         <button onClick={()=>nav(V.ADMIN_LOGIN)} className="text-xs text-white/40 hover:text-white/70 font-medium">Admin</button>
-        <button onClick={()=>nav(V.LOGIN)} className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors">Sign In</button>
+        <button onClick={()=>nav(V.LOGIN)} className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors">Login</button>
       </div>
     </nav>
 
@@ -797,8 +808,9 @@ const Landing = ({nav}) => (
       </div>
 
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        <button onClick={()=>nav(V.LOGIN)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all">Existing Investor <ArrowRight className="w-4 h-4"/></button>
-        <button onClick={()=>nav(V.REG)}   className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-xl text-sm transition-all">New Investor — Register</button>
+        <button onClick={()=>nav(V.LOGIN)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all">Login <ArrowRight className="w-4 h-4"/></button>
+        <button onClick={()=>nav(V.REG)} className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-xl text-sm transition-all">New Investor — Register</button>
+        <button onClick={()=>nav(V.PHONE)} className="w-full py-3 text-xs text-white/40 hover:text-white/70 transition-all">Existing investor? Recover your account →</button>
       </div>
     </div>
 
@@ -2109,7 +2121,9 @@ const ProfileScreen = ({investor,setInvestor}) => {
     setBankPwErr("");
     try {
       const { data } = await supabase.from('users').select('password_hash').eq('phone',investor.phone).single();
-      if(!data||data.password_hash!==btoa(bankPw)){setBankPwErr("Incorrect password.");return;}
+      if(!data){ setBankPwErr("Could not verify. Try again."); return; }
+      const { data: valid } = await supabase.rpc('verify_password', { plaintext: bankPw, hash: data.password_hash });
+      if(!valid){ setBankPwErr("Incorrect password."); return; }
       setBankUnlocked(true);setShowBankUnlock(false);setBankPw("");
     } catch { setBankPwErr("Could not verify. Try again."); }
   };
@@ -2118,18 +2132,26 @@ const ProfileScreen = ({investor,setInvestor}) => {
     if(newPw.length<6){setPwErr("New password must be at least 6 characters.");return;}
     if(newPw!==confirmPw){setPwErr("New passwords do not match.");return;}
     try {
-      const { data, error } = await supabase
+      const { data:userData } = await supabase
         .from('users')
         .select('password_hash')
         .eq('phone', investor.phone)
         .single();
-      if (error || !data) { setPwErr("Could not verify your account. Try again."); return; }
-      if (data.password_hash !== btoa(curPw)) { setPwErr("Current password is incorrect."); return; }
+      if(!userData){ setPwErr("Could not verify your account. Try again."); return; }
+      // Verify current password server-side
+      const { data: valid } = await supabase.rpc('verify_password', {
+        plaintext: curPw,
+        hash: userData.password_hash
+      });
+      if(!valid){ setPwErr("Current password is incorrect."); return; }
+      // Hash new password server-side
+      const { data: newHash } = await supabase.rpc('hash_password', { plaintext: newPw });
+      if(!newHash){ setPwErr("Failed to update password. Try again."); return; }
       const { error: updateError } = await supabase
         .from('users')
-        .update({ password_hash: btoa(newPw) })
+        .update({ password_hash: newHash })
         .eq('phone', investor.phone);
-      if (updateError) { setPwErr("Failed to update password. Try again."); return; }
+      if(updateError){ setPwErr("Failed to update password. Try again."); return; }
       setCurPw("");setNewPw("");setConfirmPw("");
       setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
     } catch {
