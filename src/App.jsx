@@ -1609,7 +1609,9 @@ const ListSlotModal = ({onClose,onList,investor}) => {
 };
 
 const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,setInvestor}) => {
-  const [activeTab,setActiveTab]=useState("buy");
+  const savedTab = (() => { try { return localStorage.getItem('noorinvest_market_tab')||"buy"; } catch { return "buy"; } })();
+  const [activeTab,setActiveTab]=useState(savedTab);
+  const changeTab = t => { setActiveTab(t); try { localStorage.setItem('noorinvest_market_tab',t); } catch {} };
   const [purchasing,setPurchasing]=useState(null);
   const [showList,setShowList]=useState(false);
   const [lockDemo,setLockDemo]=useState(false);
@@ -1723,7 +1725,7 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
       {/* Tabs */}
       <div className="flex gap-2 p-1 bg-white/5 border border-white/10 rounded-xl">
         {[{id:"buy",label:"Buy Slots"},{id:"sell",label:"My Listing"}].map(({id,label})=>(
-          <button key={id} onClick={()=>setActiveTab(id)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab===id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>{label}</button>
+          <button key={id} onClick={()=>changeTab(id)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab===id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>{label}</button>
         ))}
       </div>
 
@@ -3804,6 +3806,7 @@ export default function NoorInvest() {
     } else if(v===V.LAND){
       try { localStorage.removeItem('noorinvest_session'); } catch {}
       try { localStorage.removeItem('noorinvest_subview'); } catch {}
+      try { localStorage.removeItem('noorinvest_market_tab'); } catch {}
     }
   };
 
