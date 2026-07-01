@@ -110,9 +110,17 @@ const proRataVariance = (rows, totalProfit) => {
 // CSV parsing — expects header row then "investor_id,profit" rows
 const parseCSV = text => {
   const lines = String(text).trim().split(/\r?\n/);
+  if(lines.length<2) return [];
+  // Read headers to find correct columns by name
+  const headers = lines[0].split(",").map(h=>h.trim().toLowerCase());
+  const idIdx = headers.findIndex(h=>h==="investor_id"||h==="id");
+  const profitIdx = headers.findIndex(h=>h==="profit"||h==="profit_allocated"||h==="june_profit");
+  // Fall back to positional: col 0 = id, last col = profit
+  const useIdIdx = idIdx>=0 ? idIdx : 0;
+  const useProfitIdx = profitIdx>=0 ? profitIdx : headers.length-1;
   return lines.slice(1).map(line=>{
     const parts = line.split(",");
-    return { id:(parts[0]||"").trim(), profitRaw:(parts[1]||"").trim() };
+    return { id:(parts[useIdIdx]||"").trim(), profitRaw:(parts[useProfitIdx]||"").trim() };
   }).filter(r=>r.id);
 };
 const buildTemplateCSV = members => {
