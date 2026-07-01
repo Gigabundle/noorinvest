@@ -1133,6 +1133,13 @@ const HomeScreen = ({nav,investor}) => {
         </div>
       </div>
 
+      {/* Performance Reports card */}
+      <button onClick={()=>nav(IV.REPORTS)} className="w-full flex items-center gap-3 p-4 bg-blue-700/10 border border-blue-700/30 rounded-2xl hover:bg-blue-700/20 transition-all text-left">
+        <div className="w-10 h-10 rounded-xl bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><FileText className="w-5 h-5 text-blue-400"/></div>
+        <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white">Performance Reports</p><p className="text-[11px] text-white/40">View and download monthly profit reports</p></div>
+        <ArrowRight className="w-4 h-4 text-white/30 flex-shrink-0"/>
+      </button>
+
       {/* Recent activity */}
       <div>
         <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Recent Activity</p>
@@ -2693,14 +2700,19 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
   const [done,setDone]=useState(false);
   const [lockedIds,setLockedIds]=useState(new Set());
 
-  // 5C: Load investors already in an active/open cycle to block them
+  // 5C: Lock investors whose cycle end_date is still in the future (still deployed)
   useEffect(()=>{
-    supabase.from('cycle_members')
-      .select('investor_id, cycles!inner(status)')
-      .in('cycles.status',['open'])
-      .neq('cycle_id', cycle.id)
-      .then(({data})=>{
-        if(data) setLockedIds(new Set(data.map(r=>r.investor_id)));
+    const today = new Date().toISOString().slice(0,10);
+    // Step 1: get cycles that haven't ended yet (excluding current cycle)
+    supabase.from('cycles').select('id').gt('end_date', today).neq('id', cycle.id)
+      .then(({data:activeCycles})=>{
+        if(!activeCycles||activeCycles.length===0) return;
+        const activeIds=activeCycles.map(c=>c.id);
+        // Step 2: get investor_ids in those active cycles
+        supabase.from('cycle_members').select('investor_id').in('cycle_id',activeIds)
+          .then(({data})=>{
+            if(data) setLockedIds(new Set(data.map(r=>r.investor_id)));
+          });
       }).catch(()=>{});
   },[cycle.id]);
 
@@ -3434,6 +3446,24 @@ const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
   const [uploading,setUploading]=useState(false);
   const [uploadErr,setUploadErr]=useState("");
 
+  // Load real PDFs from Supabase on mount so they survive refresh
+  useEffect(()=>{
+    supabase.from('performance_pdfs').select('*').order('uploaded_date',{ascending:false})
+      .then(({data})=>{
+        if(data&&data.length>0){
+          setPdfs(data.map(p=>({
+            id:p.id,
+            cycleId:p.cycle_id,
+            cycleName:p.cycle_name,
+            month:p.month_label,
+            uploadedDate:p.uploaded_date,
+            fileName:p.file_name,
+            fileData:p.file_url,
+          })));
+        }
+      }).catch(()=>{});
+  },[]);
+
   const handleUpload=async (e)=>{
     const file=e.target.files?.[0];
     if(!file)return;
@@ -3900,7 +3930,9 @@ const BottomNav=({active,onChange,pendingCount})=>{
 
 // ── Admin Panel ──────────────────────────────────────────────────────────────
 const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
-  const [view,setView]=useState(VIEWS.DASH);
+  const savedAdminView = (() => { try { return localStorage.getItem('noorinvest_admin_view')||VIEWS.DASH; } catch { return VIEWS.DASH; } })();
+  const [view,setView]=useState(savedAdminView);
+  const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch {}; };
   const [investors,setInvestors]=useState(ALL_INVESTORS);
   const [editTarget,setEditTarget]=useState(null);
   const [addTarget,setAddTarget]=useState(null);
@@ -3911,7 +3943,6 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
   const [thresholds,setThresholds]=useState(INIT_THRESHOLDS);
   const [pdfs,setPdfs]=useState(INIT_PDFS);
   const pendingCount=pays.filter(p=>p.status==="pending").length+wds.filter(w=>w.status==="pending").length;
-  const nav=v=>setView(v);
   const handleSaveCycle=async (c)=>{
     setCycles(cs=>{const ex=cs.find(x=>x.id===c.id);return ex?cs.map(x=>x.id===c.id?c:x):[...cs,c];});
     try {
@@ -4085,6 +4116,7 @@ export default function NoorInvest() {
       try { localStorage.removeItem('noorinvest_session'); } catch {}
       try { localStorage.removeItem('noorinvest_subview'); } catch {}
       try { localStorage.removeItem('noorinvest_market_tab'); } catch {}
+      try { localStorage.removeItem('noorinvest_admin_view'); } catch {}
     }
   };
 
