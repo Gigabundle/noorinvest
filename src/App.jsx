@@ -2417,16 +2417,30 @@ const RequestsScreen = ({nav, investor}) => {
   );
 };
 
-// ── 4B: Investor Performance Reports Screen ──────────────────────────────────
-const ReportsScreen = ({nav}) => {
+// ── Investor Performance Reports Screen ──────────────────────────────────────
+const ReportsScreen = ({nav, investor}) => {
   const [pdfs,setPdfs]=useState([]);
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
-    supabase.from('performance_pdfs').select('*').order('uploaded_date',{ascending:false})
+    // Load PDFs that belong to cycles this investor participated in
+    // First get cycles the investor is a member of
+    supabase.from('cycle_members').select('cycle_id').eq('investor_id',investor.id)
+      .then(({data:memberships})=>{
+        const cycleIds=memberships?.map(m=>m.cycle_id)||[];
+        // Also include cyc-001 and cyc-002 for the original 22 investors
+        // who were seeded without cycle_members rows initially
+        const allCycleIds=[...new Set([...cycleIds,'cyc-001','cyc-002'])];
+        return supabase.from('performance_pdfs')
+          .select('*')
+          .in('cycle_id', allCycleIds)
+          .not('file_url','is',null)
+          .neq('file_url','')
+          .order('uploaded_date',{ascending:false});
+      })
       .then(({data})=>{ if(data) setPdfs(data); setLoading(false); })
       .catch(()=>setLoading(false));
-  },[]);
+  },[investor.id]);
 
   return(
     <div className="space-y-5 pb-24">
@@ -2441,9 +2455,9 @@ const ReportsScreen = ({nav}) => {
           <p className="text-[11px] text-white/25">Reports will appear here once admin uploads them.</p>
         </Card>
       )}
-      {!loading&&pdfs.length>0&&(
+      {!loading&&pdfs.filter(p=>p.fileData||p.file_url).length>0&&(
         <div className="space-y-3">
-          {pdfs.map(pdf=>(
+          {pdfs.filter(p=>p.fileData||p.file_url).map(pdf=>(
             <Card key={pdf.id} className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><FileText className="w-5 h-5 text-blue-400"/></div>
               <div className="flex-1 min-w-0">
@@ -2557,7 +2571,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
         {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={displayInvestor}/>}
-        {view===IV.REPORTS  &&<ReportsScreen nav={nav}/>}
+        {view===IV.REPORTS  &&<ReportsScreen nav={nav} investor={investor}/>}
         {view===IV.REQUESTS &&<RequestsScreen nav={nav} investor={investor}/>}
       </div>
       <InvestorNav active={view} onChange={nav}/>
