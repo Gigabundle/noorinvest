@@ -1679,13 +1679,8 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
     };
     setMyListing({...newSlot,status:"listed",days:getDays(sale_amount)});
     setSlots(ss=>[...ss,newSlot]);
-    // 4D: Reduce displayed capital by listed amount immediately
-    if(setInvestor){
-      const newCapital=Math.max(0,(investor.capital||0)-capital);
-      setInvestor(prev=>({...prev,capital:newCapital}));
-      // Write reduction to Supabase so it persists on refresh
-      try { await supabase.from('investors').update({capital:newCapital}).eq('id',investor.id); } catch {}
-    }
+    // Capital stays unchanged in DB - listing is just a market intent
+    // Display shows reduced capital by deducting listing amount at render time
     // Issue 5: Save to Supabase so other users see it after refresh
     try {
       await supabase.from('market_slots').insert({
@@ -1704,16 +1699,16 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
   };
 
   const handleWithdrawListing=async ()=>{
-    if(myListing && setInvestor){
-      const restored=(investor.capital||0)+(myListing.capital||0);
-      setInvestor(prev=>({...prev,capital:restored}));
-      try { await supabase.from('investors').update({capital:restored}).eq('id',investor.id); } catch {}
+    if(myListing){
       // Mark slot as withdrawn in Supabase
       try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch {}
-      // Force-refresh slots from Supabase to confirm removal
+      // Also try by seller_investor_id as fallback
+      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',investor.id).eq('sold',false); } catch {}
+      // Force-refresh slots from Supabase
       api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
     }
     setMyListing(null);
+    // Capital in DB is unchanged - display restores automatically when myListing is null
   };
 
   const availableSlots=slots.filter(s=>
@@ -2304,6 +2299,9 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     try { localStorage.setItem(notifKey,'true'); } catch {}
   };
   const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement"};
+  // Capital displayed to investor = actual capital minus any amount currently listed on market
+  const displayCapital = Math.max(0, (investor.capital||0) - (myListing&&!myListing.sold?myListing.capital||0:0));
+  const displayInvestor = {...investor, capital:displayCapital};
 
   // Issue 3: Show loading screen until real data arrives
   if(!investorLoaded) return(
@@ -2331,13 +2329,13 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         </div>
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
-        {view===IV.HOME     &&<HomeScreen nav={nav} investor={investor}/>}
-        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={investor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
-        {view===IV.HISTORY  &&<HistoryScreen investor={investor} cycles={cycles}/>}
-        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={investor} setPays={setPays} setInvestor={setInvestor}/>}
-        {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={investor} setPays={setPays} cycles={cycles}/>}
+        {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor}/>}
+        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
+        {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
+        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor}/>}
+        {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
-        {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={investor}/>}
+        {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={displayInvestor}/>}
       </div>
       <InvestorNav active={view} onChange={nav}/>
       {showNotifs&&<NotifPanel onClose={()=>setShowNotifs(false)} onMarkRead={markRead} notifs={notifs}/>}
