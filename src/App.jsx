@@ -589,6 +589,7 @@ const api = {
       return data.map(s => ({
         slot_id: s.slot_id,
         seller: s.seller,
+        seller_investor_id: s.seller_investor_id,
         cycle: s.cycle_name,
         capital: Number(s.capital),
         stake_pct: Number(s.stake_pct),
@@ -1707,14 +1708,20 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
       const restored=(investor.capital||0)+(myListing.capital||0);
       setInvestor(prev=>({...prev,capital:restored}));
       try { await supabase.from('investors').update({capital:restored}).eq('id',investor.id); } catch {}
-      // Mark slot as withdrawn in Supabase so refresh doesn't restore it
+      // Mark slot as withdrawn in Supabase
       try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch {}
-      setSlots(ss=>ss.filter(s=>s.slot_id!==myListing.slot_id));
+      // Force-refresh slots from Supabase to confirm removal
+      api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
     }
     setMyListing(null);
   };
 
-  const availableSlots=slots.filter(s=>!s.sold && s.seller_investor_id!==investor.id && s.seller!==investor.name);
+  const availableSlots=slots.filter(s=>
+    !s.sold &&
+    !s.lock &&
+    s.seller_investor_id!==investor.id &&
+    s.seller!==investor.name
+  );
 
   return(
     <div className="space-y-5 pb-24">
