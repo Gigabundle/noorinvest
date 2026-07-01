@@ -1679,7 +1679,12 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
     setMyListing({...newSlot,status:"listed",days:getDays(sale_amount)});
     setSlots(ss=>[...ss,newSlot]);
     // 4D: Reduce displayed capital by listed amount immediately
-    if(setInvestor) setInvestor(prev=>({...prev,capital:Math.max(0,(prev.capital||0)-capital)}));
+    if(setInvestor){
+      const newCapital=Math.max(0,(investor.capital||0)-capital);
+      setInvestor(prev=>({...prev,capital:newCapital}));
+      // Write reduction to Supabase so it persists on refresh
+      try { await supabase.from('investors').update({capital:newCapital}).eq('id',investor.id); } catch {}
+    }
     // Issue 5: Save to Supabase so other users see it after refresh
     try {
       await supabase.from('market_slots').insert({
@@ -1697,7 +1702,14 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
     } catch {}
   };
 
-  const handleWithdrawListing=()=>setMyListing(null);
+  const handleWithdrawListing=async ()=>{
+    if(myListing && setInvestor){
+      const restored=(investor.capital||0)+(myListing.capital||0);
+      setInvestor(prev=>({...prev,capital:restored}));
+      try { await supabase.from('investors').update({capital:restored}).eq('id',investor.id); } catch {}
+    }
+    setMyListing(null);
+  };
 
   const availableSlots=slots.filter(s=>!s.sold && s.seller_investor_id!==investor.id && s.seller!==investor.name);
 
@@ -3787,9 +3799,6 @@ export default function NoorInvest() {
     } else if(v===V.LAND){
       try { localStorage.removeItem('noorinvest_session'); } catch {}
       try { localStorage.removeItem('noorinvest_subview'); } catch {}
-      try {
-        Object.keys(localStorage).filter(k=>k.startsWith('noorinvest_notifs_read_')).forEach(k=>localStorage.removeItem(k));
-      } catch {}
     }
   };
 
