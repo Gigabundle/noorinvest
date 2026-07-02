@@ -966,7 +966,7 @@ const AdminScreen = ({nav}) => {
 // ── Investor Portal Data & Helpers ────────────────────────────────────────────
 const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement", REPORTS:"inv_reports", REQUESTS:"inv_requests" };
 
-let INVESTOR_CYCLE        = CYCLES_DATA.find(c=>c.status==="closed")||CYCLES_DATA[0];
+let INVESTOR_CYCLE = CYCLES_DATA.find(c=>c.status==="open") || CYCLES_DATA.find(c=>c.status==="closed") || CYCLES_DATA[0];
 let INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
 let INVESTOR_FUTURE_CYCLE = { id:"cyc-sep-nov-2026", name:"Cycle Sep–Nov 2026", start:"2026-09-01", end:"2026-11-30", target_pool:200000000, current_pool:200000000, min_investment:500000, max_investment:25000000, expected_rate:5.0, slots_left:0, is_full:true };
 
@@ -1090,7 +1090,10 @@ const NotifPanel = ({onClose,onMarkRead,notifs}) => (
   </div>
 );
 
-const HomeScreen = ({nav,investor}) => {
+const HomeScreen = ({nav,investor,cycles}) => {
+  // Derive current cycle from React state so re-renders pick up live data
+  const currentCycle = cycles?.find(c=>c.status==="open") || cycles?.find(c=>c.status==="closed") || INVESTOR_CYCLE;
+  const cycleName = currentCycle?.name || INVESTOR_CYCLE.name;
   const profitReady = INVESTOR_CYCLE.status==="closed" && !investor.profit_withdrawn;
   return (
     <div className="space-y-5 pb-24">
@@ -1098,7 +1101,7 @@ const HomeScreen = ({nav,investor}) => {
         <div><p className="text-xs text-white/40 font-medium">{getGreeting()},</p><h1 className="text-xl font-black text-white">{investor.name}</h1></div>
       </div>
 
-      {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${INVESTOR_CYCLE.name} is ready to withdraw.`}/>}
+      {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${cycleName} is ready to withdraw.`}/>}
 
       {/* Capital card */}
       <div className="rounded-2xl p-5 relative overflow-hidden" style={{background:"linear-gradient(135deg,#1a3a6b 0%,#1D4ED8 100%)"}}>
@@ -1108,7 +1111,7 @@ const HomeScreen = ({nav,investor}) => {
           <p className="text-xs text-blue-200/70 font-bold uppercase tracking-widest">Capital Deployed</p>
           <p className="text-3xl font-black text-white font-mono mt-1">{fmt(investor.capital)}</p>
           <div className="flex items-center justify-between mt-3">
-            <div><p className="text-[10px] text-blue-200/60 uppercase tracking-widest">Cycle</p><p className="text-xs text-white font-semibold">{INVESTOR_CYCLE.name}</p></div>
+            <div><p className="text-[10px] text-blue-200/60 uppercase tracking-widest">Cycle</p><p className="text-xs text-white font-semibold">{cycleName}</p></div>
             <div className="text-right"><p className="text-[10px] text-blue-200/60 uppercase tracking-widest">Invested</p><p className="text-xs text-white font-semibold">{fmtDate(investor.investment_date)}</p></div>
           </div>
         </div>
@@ -1117,7 +1120,7 @@ const HomeScreen = ({nav,investor}) => {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <Card className="text-center"><Label>Profit Share</Label><SmallVal color="text-emerald-400">{fmt(investor.profit)}</SmallVal></Card>
-        <Card className="text-center"><Label>Last Rate</Label><SmallVal color="text-blue-400">{INVESTOR_CYCLE.profit_rate?`${INVESTOR_CYCLE.profit_rate}%`:"—"}</SmallVal></Card>
+        <Card className="text-center"><Label>Last Rate</Label><SmallVal color="text-blue-400">{currentCycle?.profit_rate?`${currentCycle.profit_rate}%`:"—"}</SmallVal></Card>
         <Card className="text-center"><Label>Your Stake</Label><SmallVal>{investor.stake?`${investor.stake}%`:"—"}</SmallVal></Card>
       </div>
       <p className="text-[10px] text-white/25 text-center -mt-2">Past profit rate shown. Not a guarantee of future returns.</p>
@@ -1174,7 +1177,7 @@ const HomeScreen = ({nav,investor}) => {
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${tx.type==="out"?"bg-emerald-500/15 border border-emerald-500/20":"bg-blue-700/20 border border-blue-700/30"}`}>
                 {tx.type==="out"?<ArrowUpRight className="w-4 h-4 text-emerald-400"/>:<ArrowDownLeft className="w-4 h-4 text-blue-400"/>}
               </div>
-              <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white">{tx.label}</p><p className="text-[10px] text-white/40">{INVESTOR_CYCLE.name} · {tx.date}</p></div>
+              <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white">{tx.label}</p><p className="text-[10px] text-white/40">{cycleName} · {tx.date}</p></div>
               <p className={`text-sm font-bold flex-shrink-0 ${tx.type==="out"?"text-emerald-400":"text-white"}`}>{tx.type==="out"?"+":""}{fmt(tx.amount)}</p>
             </div>
           ))}
@@ -2596,7 +2599,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         </div>
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
-        {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor}/>}
+        {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
         {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
         {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor}/>}
