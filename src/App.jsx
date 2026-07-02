@@ -2963,6 +2963,28 @@ const MembersScreen=({investors,setInvestors})=>{
   const [showStatement,setShowStatement]=useState(false);
   const [copied,setCopied]=useState(false);
 
+  // Password reset state
+  const [showPwReset,setShowPwReset]=useState(false);
+  const [newPw,setNewPw]=useState("");
+  const [pwResetErr,setPwResetErr]=useState("");
+  const [pwResetDone,setPwResetDone]=useState(false);
+  const [pwResetting,setPwResetting]=useState(false);
+
+  const handlePwReset=async()=>{
+    if(!newPw||newPw.length<6){setPwResetErr("Password must be at least 6 characters.");return;}
+    if(!sel?.phone){setPwResetErr("Cannot find investor's phone number.");return;}
+    setPwResetting(true);setPwResetErr("");
+    try {
+      const { data:hashed } = await supabase.rpc('hash_password',{plaintext:newPw});
+      if(!hashed){setPwResetErr("Failed to hash password.");setPwResetting(false);return;}
+      const { error } = await supabase.from('users').update({password_hash:hashed,has_account:true}).eq('phone',sel.phone);
+      if(error){setPwResetErr("Failed to update password. Try again.");setPwResetting(false);return;}
+      setPwResetDone(true);setNewPw("");
+      setTimeout(()=>{setPwResetDone(false);setShowPwReset(false);},3000);
+    } catch { setPwResetErr("Something went wrong."); }
+    setPwResetting(false);
+  };
+
   // Refresh live investor data from Supabase every time this screen opens
   useEffect(()=>{
     api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
@@ -3086,6 +3108,26 @@ const MembersScreen=({investors,setInvestors})=>{
             <button onClick={copyStatement} className="text-[10px] font-bold text-blue-400 flex-shrink-0">{copied?"Copied!":"Copy"}</button>
           </div>
           <pre className="text-[10px] text-white/60 font-mono whitespace-pre-wrap bg-black/30 rounded-xl p-3 max-h-64 overflow-y-auto">{buildStatement(sel)}</pre>
+        </Card>
+      )}
+
+      {/* Reset Password */}
+      <button onClick={()=>{setShowPwReset(s=>!s);setPwResetErr("");setNewPw("");setPwResetDone(false);}} className="w-full py-2.5 bg-amber-700/15 border border-amber-700/30 text-amber-400 rounded-xl text-xs font-bold hover:bg-amber-700/25 flex items-center justify-center gap-1.5">
+        <Lock className="w-3.5 h-3.5"/>{showPwReset?"Cancel":"Reset Investor Password"}
+      </button>
+      {showPwReset&&(
+        <Card className="space-y-3">
+          <Label>Set Temporary Password for {sel.name}</Label>
+          {pwResetDone
+            ? <div className="flex items-center gap-2 text-emerald-400 text-sm font-semibold"><CheckCircle className="w-4 h-4"/>Password updated. Investor can now log in.</div>
+            : <>
+                <Input label="New temporary password" type="password" value={newPw} onChange={setNewPw} icon={Lock} placeholder="Minimum 6 characters" error={pwResetErr}/>
+                <Banner type="warning" msg="Share this password securely with the investor. Advise them to change it immediately after logging in."/>
+                <button onClick={handlePwReset} disabled={pwResetting} className={`w-full py-2.5 font-bold rounded-xl text-sm transition-all ${pwResetting?"bg-white/10 text-white/40 cursor-not-allowed":"bg-amber-700 hover:bg-amber-600 text-white"}`}>
+                  {pwResetting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Updating…</span>:"Set Password"}
+                </button>
+              </>
+          }
         </Card>
       )}
 
