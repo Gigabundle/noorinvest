@@ -4032,7 +4032,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
   const [showList,setShowList]=useState(false);
   const [showBuy,setShowBuy]=useState(false);
   const [selectedSlot,setSelectedSlot]=useState(null);
-  const [listForm,setListForm]=useState({investorId:"company",capital:"",type:"company"});
+  const [listForm,setListForm]=useState({investorId:"company",cycleId:cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"",capital:""});
   const [listErr,setListErr]=useState("");
   const [listLoading,setListLoading]=useState(false);
   const [listDone,setListDone]=useState(false);
@@ -4053,12 +4053,17 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
 
   const handleList=async()=>{
     setListErr("");
-    const cap=parseAmt(listForm.capital);
+    const cap=parseAmt(listForm.capital.replace(/,/g,""));
     if(!cap||cap<=0){setListErr("Enter a valid capital amount.");return;}
+    const cycle=cycles.find(c=>c.id===listForm.cycleId)||cycles.find(c=>c.status==="open")||cycles[0];
+    const isCompany=listForm.investorId==="company";
+    // Company listing cannot exceed company portfolio for selected cycle
+    if(isCompany){
+      const companyPortfolio=companyCapital(cycle);
+      if(cap>companyPortfolio){setListErr(`Company listing cannot exceed portfolio of ${fmt(companyPortfolio)} for this cycle.`);return;}
+    }
     setListLoading(true);
     const slotId=`slt-${Date.now()}`;
-    const cycle=cycles.find(c=>c.status==="open")||cycles[0];
-    const isCompany=listForm.investorId==="company";
     const inv=isCompany?null:investors.find(i=>i.id===listForm.investorId);
     const seller=isCompany?"Gigabundle Ltd (Company)":(inv?.name||"Admin");
     try {
@@ -4076,7 +4081,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
         is_company:isCompany,
       });
       setSlots(ss=>[...ss,{slot_id:slotId,seller,cycle:cycle?.name,capital:cap,sale_amount:cap,sold:false,lock:false,is_company:isCompany}]);
-      setListDone(true);setListForm({investorId:"company",capital:"",type:"company"});
+      setListDone(true);setListForm({investorId:"company",cycleId:cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"",capital:""});
       setTimeout(()=>{setListDone(false);setShowList(false);},2500);
     } catch { setListErr("Failed to list slot. Try again."); }
     setListLoading(false);
@@ -4128,7 +4133,21 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
               ))}
             </select>
           </div>
-          <Input label="Capital Amount (₦)" value={listForm.capital} onChange={v=>setListForm(f=>({...f,capital:v}))} placeholder="e.g. 5000000" error={listErr}/>
+          <div>
+            <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">From Cycle</p>
+            <select value={listForm.cycleId||""} onChange={e=>setListForm(f=>({...f,cycleId:e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none">
+              {cycles.filter(c=>c.status!=="archived").map(c=>(
+                <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
+              ))}
+            </select>
+          </div>
+          {listForm.investorId==="company"&&listForm.cycleId&&(()=>{
+            const cyc=cycles.find(c=>c.id===listForm.cycleId);
+            const portfolio=cyc?companyCapital(cyc):0;
+            return <p className="text-[11px] text-purple-300">Company portfolio for this cycle: <strong>{fmt(portfolio)}</strong></p>;
+          })()}
+          <Input label="Capital Amount (₦)" value={listForm.capital} onChange={v=>setListForm(f=>({...f,capital:v.replace(/[^0-9]/g,"")}))} placeholder="e.g. 5000000" error={listErr}/>
+          {listForm.capital&&<p className="text-[11px] text-white/40">= {fmt(Number(listForm.capital.replace(/,/g,"")))}</p>}
           {listDone
             ? <p className="text-sm text-emerald-400 font-semibold flex items-center gap-2"><CheckCircle className="w-4 h-4"/>Slot listed successfully.</p>
             : <button onClick={handleList} disabled={listLoading} className={`w-full py-2.5 font-bold rounded-xl text-sm ${listLoading?"bg-white/10 text-white/40":"bg-blue-700 hover:bg-blue-600 text-white"}`}>
