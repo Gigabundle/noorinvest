@@ -976,10 +976,9 @@ const updateInvestorCycles = (liveCycles) => {
   if (!liveCycles?.length) return;
   const closed = liveCycles.filter(c=>c.status==="closed");
   const lastClosed = closed.length ? closed.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b) : liveCycles[0];
-  // Current cycle = open cycle if running, otherwise last closed
-  const openCyc = liveCycles.find(c=>c.status==="open");
-  INVESTOR_CYCLE = openCyc || lastClosed;
   const openCyc = liveCycles.find(c=>c.status==="open") || liveCycles[liveCycles.length-1];
+  // Current cycle = open cycle if running, otherwise last closed
+  INVESTOR_CYCLE = openCyc || lastClosed;
   INVESTOR_NEXT_CYCLE = {
     ...openCyc,
     current_pool: openCyc.pool || 0,
