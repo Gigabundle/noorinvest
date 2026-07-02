@@ -1093,7 +1093,7 @@ const HomeScreen = ({nav,investor}) => {
   return (
     <div className="space-y-5 pb-24">
       <div className="flex items-start justify-between">
-        <div><p className="text-xs text-white/40 font-medium">{getGreeting()},</p><h1 className="text-xl font-black text-white">{investor.name.split(" ")[0]}</h1></div>
+        <div><p className="text-xs text-white/40 font-medium">{getGreeting()},</p><h1 className="text-xl font-black text-white">{investor.name}</h1></div>
       </div>
 
       {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${INVESTOR_CYCLE.name} is ready to withdraw.`}/>}
