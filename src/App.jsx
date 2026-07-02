@@ -1436,7 +1436,7 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
                 <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-2">
                   <p className="text-sm text-white leading-relaxed">
                     Your <strong className="text-blue-400">{fmt(investor.capital)}</strong> was <strong className="text-blue-400">{investor.stake}%</strong> of the total fund.<br/>
-                    You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.profit)}</strong>.
+                    You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.approved_withdrawals||investor.profit)}</strong>.
                   </p>
                 </div>
                 <button onClick={()=>setShowFormula(!showFormula)} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors w-full">
@@ -1451,7 +1451,7 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
-                  {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${c.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
+                  {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.approved_withdrawals||investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${c.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
                     <div key={l}><Label>{l}</Label><p className={`text-sm font-black font-mono ${color}`}>{v}</p></div>
                   ))}
                 </div>
