@@ -2637,7 +2637,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
       {pendingCount>0&&<Banner type="warning" msg={`${pendingCount} pending items require your attention.`}/>}
       {openCycle&&(
         <Card className="space-y-3">
-          <div className="flex items-start justify-between"><div><Label>Active Cycle</Label><p className="text-sm font-black text-white">{openCycle.name}</p><p className="text-xs text-white/40">{fmtDate(openCycle.start)} — {fmtDate(openCycle.end)}</p></div><Pill label="Open" color="bg-blue-700/20 border-blue-700/30 text-blue-400"/></div>
+          <div className="flex items-start justify-between"><div><Label>Active Cycle</Label><p className="text-sm font-black text-white">{openCycle.name}</p><p className="text-xs text-white/40">{fmtDate(openCycle.start)} — {fmtDate(openCycle.end)}</p></div><Pill label={openCycle.accepting?"Accepting":"Closed to New"} color={openCycle.accepting?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-amber-700/20 border-amber-700/30 text-amber-400"}/></div>
           <div className="grid grid-cols-3 gap-2 text-center">
             {[{l:"Pool",v:fmtM(openCycle.pool)},{l:"Investors",v:openCycle.investors},{l:"Accepting",v:openCycle.accepting?"Yes":"No"}].map(({l,v})=>(
               <div key={l} className="bg-white/5 rounded-xl p-2"><p className="text-[9px] text-white/30 uppercase tracking-widest font-bold">{l}</p><p className="text-xs font-black text-white mt-0.5">{v}</p></div>
