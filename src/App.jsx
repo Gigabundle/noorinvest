@@ -1883,8 +1883,8 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
           min_investment: c.min_investment||100000,
           max_investment: c.max_investment||20000000,
           expected_rate: c.profit_rate||c.expected_rate||null,
-          slots_left: c.slots_left||18,
-          is_full: c.is_full||false,
+          slots_left: c.accepting===false ? 0 : (c.slots_left||18),
+          is_full: c.accepting===false || c.is_full||false,
         }))
     : [INVESTOR_NEXT_CYCLE, INVESTOR_FUTURE_CYCLE];
 
