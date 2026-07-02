@@ -157,7 +157,7 @@ const TF = ({label,value,onChange,type="text",error,hint,disabled}) => (
 );
 
 // ── VIEWS ─────────────────────────────────────────────────────────────────────
-const VIEWS={DASH:"dash",CYCLES:"cycles",CREATE_CYCLE:"create",EDIT_CYCLE:"edit",ADD_MEMBERS:"addmem",MEMBERS:"members",APPROVALS:"approvals",SETTINGS:"settings",PROFIT_CSV:"profitcsv",PERFORMANCE_PDF:"perfpdf",THRESHOLDS:"thresholds",TNC:"tnc",ANALYTICS:"analytics"};
+const VIEWS={DASH:"dash",CYCLES:"cycles",CREATE_CYCLE:"create",EDIT_CYCLE:"edit",ADD_MEMBERS:"addmem",MEMBERS:"members",APPROVALS:"approvals",SETTINGS:"settings",PROFIT_CSV:"profitcsv",PERFORMANCE_PDF:"perfpdf",THRESHOLDS:"thresholds",TNC:"tnc",ANALYTICS:"analytics",MARKET:"adminmarket"};
 
 // ── Banner (merged: all 4 types, onClose, onAction) ──────────────────────────
 const Banner = ({type,msg,onClose,onAction,actionLabel}) => {
@@ -4005,7 +4005,7 @@ const SettingsScreen=({nav})=>{
 
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
 const BottomNav=({active,onChange,pendingCount})=>{
-  const items=[{id:VIEWS.DASH,icon:LayoutDashboard,label:"Dashboard"},{id:VIEWS.CYCLES,icon:RefreshCw,label:"Cycles"},{id:VIEWS.MEMBERS,icon:Users,label:"Members"},{id:VIEWS.APPROVALS,icon:CheckSquare,label:"Approvals"},{id:VIEWS.SETTINGS,icon:Settings,label:"Settings"}];
+  const items=[{id:VIEWS.DASH,icon:LayoutDashboard,label:"Dashboard"},{id:VIEWS.CYCLES,icon:RefreshCw,label:"Cycles"},{id:VIEWS.MEMBERS,icon:Users,label:"Members"},{id:VIEWS.APPROVALS,icon:CheckSquare,label:"Approvals"},{id:VIEWS.MARKET,icon:ArrowRightLeft,label:"Market"},{id:VIEWS.SETTINGS,icon:Settings,label:"Settings"}];
   const cycleViews=[VIEWS.CREATE_CYCLE,VIEWS.EDIT_CYCLE,VIEWS.ADD_MEMBERS];
   const settingsViews=[VIEWS.PROFIT_CSV,VIEWS.PERFORMANCE_PDF,VIEWS.THRESHOLDS,VIEWS.TNC,VIEWS.ANALYTICS];
   const activeTab=cycleViews.includes(active)?VIEWS.CYCLES:settingsViews.includes(active)?VIEWS.SETTINGS:active;
@@ -4026,6 +4026,165 @@ const BottomNav=({active,onChange,pendingCount})=>{
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 // ── Admin Panel ──────────────────────────────────────────────────────────────
+// ── Admin Market Screen ───────────────────────────────────────────────────────
+const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
+  const [tab,setTab]=useState("active");
+  const [showList,setShowList]=useState(false);
+  const [showBuy,setShowBuy]=useState(false);
+  const [selectedSlot,setSelectedSlot]=useState(null);
+  const [listForm,setListForm]=useState({investorId:"company",capital:"",type:"company"});
+  const [listErr,setListErr]=useState("");
+  const [listLoading,setListLoading]=useState(false);
+  const [listDone,setListDone]=useState(false);
+
+  useEffect(()=>{
+    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
+  },[]);
+
+  const active=slots.filter(s=>!s.sold&&!s.lock);
+  const sold=slots.filter(s=>s.sold||s.lock);
+
+  const handleRemove=async(slotId)=>{
+    try {
+      await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slotId);
+      setSlots(ss=>ss.filter(s=>s.slot_id!==slotId));
+    } catch {}
+  };
+
+  const handleList=async()=>{
+    setListErr("");
+    const cap=parseAmt(listForm.capital);
+    if(!cap||cap<=0){setListErr("Enter a valid capital amount.");return;}
+    setListLoading(true);
+    const slotId=`slt-${Date.now()}`;
+    const cycle=cycles.find(c=>c.status==="open")||cycles[0];
+    const isCompany=listForm.investorId==="company";
+    const inv=isCompany?null:investors.find(i=>i.id===listForm.investorId);
+    const seller=isCompany?"Gigabundle Ltd (Company)":(inv?.name||"Admin");
+    try {
+      await supabase.from('market_slots').insert({
+        slot_id:slotId,
+        seller,
+        seller_investor_id:isCompany?null:listForm.investorId,
+        cycle_name:cycle?.name||"",
+        capital:cap,
+        stake_pct:Number(((cap/(cycle?.pool||101400000))*100).toFixed(3)),
+        sale_amount:cap,
+        days_in_fund:0,
+        expected_rate:cycle?.profit_rate||null,
+        lock:false,sold:false,
+        is_company:isCompany,
+      });
+      setSlots(ss=>[...ss,{slot_id:slotId,seller,cycle:cycle?.name,capital:cap,sale_amount:cap,sold:false,lock:false,is_company:isCompany}]);
+      setListDone(true);setListForm({investorId:"company",capital:"",type:"company"});
+      setTimeout(()=>{setListDone(false);setShowList(false);},2500);
+    } catch { setListErr("Failed to list slot. Try again."); }
+    setListLoading(false);
+  };
+
+  const handleAdminBuy=async(slot)=>{
+    const payId=`pay-${Date.now()}`;
+    const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+    try {
+      await supabase.from('payments').insert({
+        id:payId,type:"slot_purchase",
+        investor_name:"Gigabundle Ltd (Admin)",investor_id:"admin",
+        amount:slot.sale_amount,cycle_name:slot.cycle,
+        date:dateStr,status:"approved",receipt:null,reject_reason:"Admin direct purchase",
+      });
+      await supabase.from('market_slots').update({sold:true}).eq('slot_id',slot.slot_id);
+      setSlots(ss=>ss.map(s=>s.slot_id===slot.slot_id?{...s,sold:true}:s));
+      setPays(ps=>[...ps,{id:payId,type:"slot_purchase",investor:"Gigabundle Ltd (Admin)",amount:slot.sale_amount,cycle:slot.cycle,date:dateStr,status:"approved"}]);
+      setSelectedSlot(null);
+    } catch {}
+  };
+
+  return(
+    <div className="space-y-5 pb-24">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-black text-white">Secondary Market</h2>
+        <div className="flex gap-2">
+          <button onClick={()=>{setShowBuy(false);setShowList(s=>!s);}} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold rounded-lg">+ List Slot</button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
+        {[{id:"active",label:`Active (${active.length})`},{id:"sold",label:`Sold (${sold.length})`}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${tab===t.id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* List Slot Form */}
+      {showList&&(
+        <Card className="space-y-3">
+          <Label>List a Market Slot</Label>
+          <div>
+            <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Listing As</p>
+            <select value={listForm.investorId} onChange={e=>setListForm(f=>({...f,investorId:e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none">
+              <option value="company" className="bg-slate-900">Gigabundle Ltd (Company)</option>
+              {investors.filter(i=>i.status==="active").map(i=>(
+                <option key={i.id} value={i.id} className="bg-slate-900">{i.name}</option>
+              ))}
+            </select>
+          </div>
+          <Input label="Capital Amount (₦)" value={listForm.capital} onChange={v=>setListForm(f=>({...f,capital:v}))} placeholder="e.g. 5000000" error={listErr}/>
+          {listDone
+            ? <p className="text-sm text-emerald-400 font-semibold flex items-center gap-2"><CheckCircle className="w-4 h-4"/>Slot listed successfully.</p>
+            : <button onClick={handleList} disabled={listLoading} className={`w-full py-2.5 font-bold rounded-xl text-sm ${listLoading?"bg-white/10 text-white/40":"bg-blue-700 hover:bg-blue-600 text-white"}`}>
+                {listLoading?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Listing…</span>:"List on Market"}
+              </button>
+          }
+        </Card>
+      )}
+
+      {/* Slot cards */}
+      {tab==="active"&&(
+        active.length===0
+          ? <Card className="text-center py-6 text-white/30 text-sm">No active listings.</Card>
+          : <div className="space-y-3">
+              {active.map(s=>(
+                <Card key={s.slot_id} className="space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white truncate">{s.seller}</p>
+                      <p className="text-[10px] text-white/40">{s.cycle} · {s.is_company&&<span className="text-purple-400">Company slot</span>}</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-700/20 border border-blue-700/30 text-blue-400">Listed</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[["Capital",fmt(s.capital)],["Sale Price",fmt(s.sale_amount)]].map(([l,v])=>(
+                      <div key={l} className="bg-white/5 rounded-xl p-2.5 text-center"><p className="text-[9px] text-white/30 uppercase font-bold">{l}</p><p className="text-xs font-black text-white mt-0.5">{v}</p></div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={()=>handleAdminBuy(s)} className="flex-1 py-2 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-700/30">Buy (Admin)</button>
+                    <button onClick={()=>handleRemove(s.slot_id)} className="flex-1 py-2 bg-red-700/20 border border-red-700/30 text-red-400 rounded-xl text-xs font-bold hover:bg-red-700/30">Remove</button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+      )}
+
+      {tab==="sold"&&(
+        sold.length===0
+          ? <Card className="text-center py-6 text-white/30 text-sm">No sold slots yet.</Card>
+          : <div className="space-y-3">
+              {sold.map(s=>(
+                <Card key={s.slot_id} className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div><p className="text-sm font-bold text-white">{s.seller}</p><p className="text-[10px] text-white/40">{s.cycle}</p></div>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/10 border border-white/10 text-white/40">{s.lock&&!s.sold?"Withdrawn":"Sold"}</span>
+                  </div>
+                  <div className="flex justify-between text-sm"><span className="text-white/40">Capital</span><span className="text-white font-bold">{fmt(s.capital)}</span></div>
+                </Card>
+              ))}
+            </div>
+      )}
+    </div>
+  );
+};
+
 const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
   const savedAdminView = (() => { try { return localStorage.getItem('noorinvest_admin_view')||VIEWS.DASH; } catch { return VIEWS.DASH; } })();
   const [view,setView]=useState(savedAdminView);
@@ -4096,7 +4255,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
     } catch {}
   };
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
-  const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
+  const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.MARKET]:"Secondary Market",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
   return (
     <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
@@ -4117,6 +4276,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         {view===VIEWS.ADD_MEMBERS  &&addTarget&&<AddMembersScreen cycle={addTarget} nav={nav} onAdd={handleAddMembers}/>}
         {view===VIEWS.MEMBERS      &&<MembersScreen investors={investors} setInvestors={setInvestors}/>}
         {view===VIEWS.APPROVALS    &&<ApprovalsScreen pays={pays} setPays={setPays} wds={wds} setWds={setWds} slots={slots} setSlots={setSlots} investors={investors} setInvestors={setInvestors} cycles={cycles} setCycles={setCycles}/>}
+        {view===VIEWS.MARKET       &&<AdminMarketScreen slots={slots} setSlots={setSlots} investors={investors} cycles={cycles} pays={pays} setPays={setPays}/>}
         {view===VIEWS.SETTINGS     &&<SettingsScreen nav={nav}/>}
         {view===VIEWS.PROFIT_CSV       &&<ProfitCSVScreen nav={nav} cycles={cycles} investors={investors} onApply={handleApplyProfitCSV}/>}
         {view===VIEWS.PERFORMANCE_PDF  &&<PerformancePDFScreen nav={nav} cycles={cycles} pdfs={pdfs} setPdfs={setPdfs}/>}
