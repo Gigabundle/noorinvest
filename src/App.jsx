@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from './supabaseClient.js';
-import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // ── Admin Data + Helpers + UI Primitives ─────────────────────────────────────
@@ -3000,7 +3000,31 @@ const MembersScreen=({investors,setInvestors})=>{
     api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
   },[]);
 
-  const filtered=investors.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search));
+  // CSV download helpers
+  const downloadCSV=(filename,rows)=>{
+    const csv=rows.map(r=>r.map(v=>typeof v==="string"&&v.includes(",")?`"${v}"`:v).join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=filename;a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadInvestorList=()=>{
+    const headers=["ID","Name","Phone","Email","Bank","Account No","Account Name","Capital","Stake %","Profit","Approved Withdrawals","Status","Investment Date"];
+    const rows=investors.map(i=>[i.id,i.name,i.phone,i.email||"",i.bank||"",i.account_number||i.account||"",i.account_name||"",i.capital,i.stake,i.profit,i.approved_withdrawals,i.status,i.investment_date||""]);
+    downloadCSV(`noorinvest-investors-${new Date().toISOString().slice(0,10)}.csv`,[headers,...rows]);
+  };
+
+  const downloadHistory=async()=>{
+    const [pays,wds]=await Promise.all([
+      supabase.from('payments').select('*').order('created_at',{ascending:false}),
+      supabase.from('withdrawals').select('*').order('created_at',{ascending:false}),
+    ]);
+    const headers=["Type","Investor","Amount","Cycle/Details","Date","Status","Note"];
+    const payRows=(pays.data||[]).map(p=>["Payment",p.investor_name,p.amount,p.cycle_name,p.date,p.status,p.reject_reason||""]);
+    const wdRows=(wds.data||[]).map(w=>["Withdrawal",w.investor_name,w.amount,`${w.type} · ${w.bank} ${w.account}`,w.date,w.status,w.admin_note||""]);
+    downloadCSV(`noorinvest-history-${new Date().toISOString().slice(0,10)}.csv`,[headers,...payRows,...wdRows]);
+  };
   const sortedFiltered=[...filtered].sort((a,b)=>{
     if(sortBy==="capital")return b.capital-a.capital;
     if(sortBy==="stake")return b.stake-a.stake;
@@ -3163,7 +3187,13 @@ const MembersScreen=({investors,setInvestors})=>{
   return (
     <div className="space-y-5 pb-24">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black text-white">Members ({investors.length})</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xl font-black text-white">Members ({investors.length})</h2>
+          <div className="flex gap-2">
+            <button onClick={downloadInvestorList} className="px-2.5 py-1.5 bg-blue-700/20 border border-blue-700/30 text-blue-400 rounded-lg text-[10px] font-bold flex items-center gap-1"><Download className="w-3 h-3"/>Investors</button>
+            <button onClick={downloadHistory} className="px-2.5 py-1.5 bg-purple-700/20 border border-purple-700/30 text-purple-400 rounded-lg text-[10px] font-bold flex items-center gap-1"><Download className="w-3 h-3"/>History</button>
+          </div>
+        </div>
         <button onClick={()=>{setSelectMode(s=>!s);setSelectedIds([]);}} className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border ${selectMode?"bg-blue-700 border-blue-700 text-white":"bg-white/5 border-white/10 text-white/40"}`}>
           {selectMode?"Cancel":"Select"}
         </button>
