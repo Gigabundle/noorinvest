@@ -4067,6 +4067,10 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
     if(isCompany){
       const companyPortfolio=companyCapital(cycle);
       if(cap>companyPortfolio){setListErr(`Company listing cannot exceed portfolio of ${fmt(companyPortfolio)} for this cycle.`);return;}
+    } else {
+      // Investor listing cannot exceed their capital
+      const inv=investors.find(i=>i.id===listForm.investorId);
+      if(inv&&cap>inv.capital){setListErr(`Cannot exceed investor capital of ${fmt(inv.capital)}.`);return;}
     }
     setListLoading(true);
     const slotId=`slt-${Date.now()}`;
@@ -4148,13 +4152,43 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
               ))}
             </select>
           </div>
-          {listForm.investorId==="company"&&listForm.cycleId&&(()=>{
+          {(()=>{
+            const isCompany=listForm.investorId==="company";
             const cyc=cycles.find(c=>c.id===listForm.cycleId);
-            const portfolio=cyc?companyCapital(cyc):0;
-            return <p className="text-[11px] text-purple-300">Company portfolio for this cycle: <strong>{fmt(portfolio)}</strong></p>;
+            const companyPortfolio=cyc?companyCapital(cyc):0;
+            const selInv=isCompany?null:investors.find(i=>i.id===listForm.investorId);
+            const walletLimit=isCompany?companyPortfolio:(selInv?.capital||0);
+            return(
+              <>
+                {!isCompany&&selInv&&(
+                  <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Investor Wallet</p>
+                    <p className="text-sm font-black text-white font-mono">{fmt(selInv.capital)}</p>
+                  </div>
+                )}
+                {isCompany&&cyc&&(
+                  <p className="text-[11px] text-purple-300">Company portfolio for this cycle: <strong>{fmt(companyPortfolio)}</strong></p>
+                )}
+                <div>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Capital Amount (₦)</p>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={listForm.capital?Number(listForm.capital.replace(/,/g,"")).toLocaleString():""}
+                    onChange={e=>{
+                      const raw=e.target.value.replace(/,/g,"").replace(/[^0-9]/g,"");
+                      setListForm(f=>({...f,capital:raw}));
+                    }}
+                    placeholder="e.g. 5,000,000"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-blue-600/30"
+                  />
+                  {walletLimit>0&&listForm.capital&&Number(listForm.capital)>walletLimit&&(
+                    <p className="text-[11px] text-red-400 mt-1">Exceeds limit of {fmt(walletLimit)}</p>
+                  )}
+                </div>
+              </>
+            );
           })()}
-          <Input label="Capital Amount (₦)" value={listForm.capital} onChange={v=>setListForm(f=>({...f,capital:v.replace(/[^0-9]/g,"")}))} placeholder="e.g. 5000000" error={listErr}/>
-          {listForm.capital&&<p className="text-[11px] text-white/40">= {fmt(Number(listForm.capital.replace(/,/g,"")))}</p>}
           {listDone
             ? <p className="text-sm text-emerald-400 font-semibold flex items-center gap-2"><CheckCircle className="w-4 h-4"/>Slot listed successfully.</p>
             : <button onClick={handleList} disabled={listLoading} className={`w-full py-2.5 font-bold rounded-xl text-sm ${listLoading?"bg-white/10 text-white/40":"bg-blue-700 hover:bg-blue-600 text-white"}`}>
