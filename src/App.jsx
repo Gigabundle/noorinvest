@@ -4406,9 +4406,13 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
   const [investors,setInvestors]=useState(ALL_INVESTORS);
   const [editTarget,setEditTarget]=useState(null);
   const [addTarget,setAddTarget]=useState(null);
+  const [adminLoaded,setAdminLoaded]=useState(false);
 
   useEffect(()=>{
-    api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
+    api.getAllInvestors().then(data=>{
+      if(data) setInvestors(data);
+      setAdminLoaded(true);
+    });
   },[]);
   const [thresholds,setThresholds]=useState(INIT_THRESHOLDS);
   const [pdfs,setPdfs]=useState(INIT_PDFS);
@@ -4472,6 +4476,16 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
   };
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
   const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.MARKET]:"Secondary Market",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
+
+  if(!adminLoaded) return(
+    <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
+      <div className="flex flex-col items-center gap-4">
+        <Loader className="w-10 h-10 text-red-400 animate-spin"/>
+        <p className="text-white/40 text-sm font-medium">Loading admin panel…</p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
