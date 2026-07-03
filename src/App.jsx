@@ -2678,7 +2678,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
 
 // ── CREATE CYCLE ──────────────────────────────────────────────────────────────
 const CreateCycleScreen=({nav,onSave})=>{
-  const [f,setF]=useState({name:"",start:"",end:"",target_pool:"",company_stake_pct:"30",rollover_days:"7"});
+  const [f,setF]=useState({name:"",start:"",end:"",target_pool:"",company_stake_pct:"30",rollover_days:"7",min_investment:"100000",max_investment:"20000000"});
   const [errs,setErrs]=useState({});
   const [done,setDone]=useState(false);
   const sf=k=>v=>setF(p=>({...p,[k]:v}));
@@ -2690,8 +2690,11 @@ const CreateCycleScreen=({nav,onSave})=>{
     if(!f.target_pool||isNaN(Number(f.target_pool)))e.target_pool="Valid amount required";
     if(Number(f.company_stake_pct)<0||Number(f.company_stake_pct)>99)e.company_stake_pct="0–99%";
     if(!f.rollover_days||isNaN(Number(f.rollover_days)))e.rollover_days="Valid days required";
+    if(!f.min_investment||isNaN(Number(f.min_investment)))e.min_investment="Valid amount required";
+    if(!f.max_investment||isNaN(Number(f.max_investment)))e.max_investment="Valid amount required";
+    if(Number(f.min_investment)>=Number(f.max_investment))e.max_investment="Must be greater than minimum";
     setErrs(e);if(Object.keys(e).length)return;
-    onSave({id:`cyc-${Date.now()}`,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),pool:0,company_stake_pct:Number(f.company_stake_pct),investor_split:split,rollover_days:Number(f.rollover_days),profit_rate:null,total_profit:null,status:"open",investors:0,accepting:false,member_ids:[]});
+    onSave({id:`cyc-${Date.now()}`,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),pool:0,company_stake_pct:Number(f.company_stake_pct),investor_split:split,rollover_days:Number(f.rollover_days),min_investment:Number(f.min_investment),max_investment:Number(f.max_investment),profit_rate:null,total_profit:null,status:"open",investors:0,accepting:false,member_ids:[]});
     setDone(true);setTimeout(()=>nav(VIEWS.CYCLES),1200);
   };
   if(done) return (<div className="flex flex-col items-center text-center gap-4 pt-16 pb-24"><div className="w-16 h-16 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-emerald-400"/></div><p className="text-lg font-black text-white">Cycle Created</p><p className="text-sm text-white/40">Returning…</p></div>);
@@ -2705,6 +2708,8 @@ const CreateCycleScreen=({nav,onSave})=>{
       <TF label="Target Pool (₦)" value={fmtAmt(f.target_pool)} onChange={v=>sf("target_pool")(parseAmt(v))} error={errs.target_pool}  hint="Company stake calculated from this amount"/>
       <TF label="Company Stake (%)" value={f.company_stake_pct} onChange={v=>setF(p=>({...p,company_stake_pct:v}))} error={errs.company_stake_pct} hint="Locked after creation"/>
       <div className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl"><span className="text-sm text-white/40">Investor Split</span><span className="text-sm font-bold text-blue-400">{split}%</span></div>
+      <TF label="Min Investment (₦)" value={fmtAmt(f.min_investment)} onChange={v=>sf("min_investment")(parseAmt(v))} error={errs.min_investment} hint="Minimum amount an investor can join with"/>
+      <TF label="Max Investment (₦)" value={fmtAmt(f.max_investment)} onChange={v=>sf("max_investment")(parseAmt(v))} error={errs.max_investment} hint="Maximum amount an investor can join with"/>
       <TF label="Rollover Opt-Out Window (days)" value={f.rollover_days} onChange={sf("rollover_days")} error={errs.rollover_days}/>
       <button onClick={submit} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">Create Cycle <ArrowRight className="w-4 h-4"/></button>
     </div>
@@ -2713,7 +2718,7 @@ const CreateCycleScreen=({nav,onSave})=>{
 
 // ── EDIT CYCLE ────────────────────────────────────────────────────────────────
 const EditCycleScreen=({cycle,nav,onSave})=>{
-  const [f,setF]=useState({name:cycle.name,start:cycle.start,end:cycle.end,target_pool:String(cycle.target_pool),rollover_days:String(cycle.rollover_days)});
+  const [f,setF]=useState({name:cycle.name,start:cycle.start,end:cycle.end,target_pool:String(cycle.target_pool),rollover_days:String(cycle.rollover_days),min_investment:String(cycle.min_investment||100000),max_investment:String(cycle.max_investment||20000000)});
   const [errs,setErrs]=useState({});const [done,setDone]=useState(false);
   const sf=k=>v=>setF(p=>({...p,[k]:v}));
   const submit=()=>{
@@ -2721,8 +2726,11 @@ const EditCycleScreen=({cycle,nav,onSave})=>{
     if(f.start&&f.end&&f.end<=f.start)e.end="End must be after start";
     if(!f.target_pool||isNaN(Number(f.target_pool)))e.target_pool="Valid amount required";
     if(!f.rollover_days||isNaN(Number(f.rollover_days)))e.rollover_days="Valid days required";
+    if(!f.min_investment||isNaN(Number(f.min_investment)))e.min_investment="Valid amount required";
+    if(!f.max_investment||isNaN(Number(f.max_investment)))e.max_investment="Valid amount required";
+    if(Number(f.min_investment)>=Number(f.max_investment))e.max_investment="Must be greater than minimum";
     setErrs(e);if(Object.keys(e).length)return;
-    onSave({...cycle,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),rollover_days:Number(f.rollover_days)});
+    onSave({...cycle,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),rollover_days:Number(f.rollover_days),min_investment:Number(f.min_investment),max_investment:Number(f.max_investment)});
     setDone(true);setTimeout(()=>nav(VIEWS.CYCLES),1200);
   };
   if(done) return (<div className="flex flex-col items-center text-center gap-4 pt-16 pb-24"><div className="w-16 h-16 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-emerald-400"/></div><p className="text-lg font-black text-white">Cycle Updated</p><p className="text-sm text-white/40">Returning…</p></div>);
@@ -2735,6 +2743,8 @@ const EditCycleScreen=({cycle,nav,onSave})=>{
       <TF label="End Date"      value={f.end}          onChange={sf("end")}         error={errs.end}     type="date"/>
       <TF label="Target Pool (₦)" value={fmtAmt(f.target_pool)} onChange={v=>sf("target_pool")(parseAmt(v))} error={errs.target_pool}/>
       <div className="flex items-center justify-between p-3.5 bg-white/5 border border-white/10 rounded-xl"><div><p className="text-[11px] font-bold tracking-widest uppercase text-white/40">Company Stake %</p><p className="text-sm font-bold text-white/50">{cycle.company_stake_pct}%</p></div><div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10"><Lock className="w-3 h-3 text-white/30"/><span className="text-[10px] text-white/30 font-bold">Locked</span></div></div>
+      <TF label="Min Investment (₦)" value={fmtAmt(f.min_investment)} onChange={v=>sf("min_investment")(parseAmt(v))} error={errs.min_investment} hint="Minimum amount an investor can join with"/>
+      <TF label="Max Investment (₦)" value={fmtAmt(f.max_investment)} onChange={v=>sf("max_investment")(parseAmt(v))} error={errs.max_investment} hint="Maximum amount an investor can join with"/>
       <TF label="Rollover Opt-Out Window (days)" value={f.rollover_days} onChange={sf("rollover_days")} error={errs.rollover_days}/>
       <button onClick={submit} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">Save Changes <ArrowRight className="w-4 h-4"/></button>
     </div>
@@ -4277,6 +4287,8 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         status:c.status,
         accepting:c.accepting,
         investors_count:c.investors,
+        min_investment:c.min_investment||100000,
+        max_investment:c.max_investment||20000000,
       });
     } catch {}
   };
