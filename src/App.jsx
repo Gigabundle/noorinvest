@@ -3216,6 +3216,13 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const [rejectReason,setRejectReason]=useState("");
   const [receiptModal,setReceiptModal]=useState(null);
 
+  // Bulk selection state
+  const [selectedPays,setSelectedPays]=useState(new Set());
+  const [selectedWds,setSelectedWds]=useState(new Set());
+  const [bulkRejectModal,setBulkRejectModal]=useState(null); // 'pays' | 'wds'
+  const [bulkRejectReason,setBulkRejectReason]=useState("");
+  const [bulkLoading,setBulkLoading]=useState(false);
+
   // Refresh live data from Supabase every time this screen opens
   useEffect(()=>{
     api.getPayments().then(data=>{ if(data) setPays(data); });
@@ -3319,6 +3326,33 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
     setRejectModal(null);setRejectReason("");
   };
 
+  // Bulk handlers
+  const bulkApprovePays=async()=>{
+    setBulkLoading(true);
+    for(const id of selectedPays){ await approvePay(id); }
+    setSelectedPays(new Set());setBulkLoading(false);
+  };
+  const bulkRejectPays=async()=>{
+    setBulkLoading(true);
+    for(const id of selectedPays){ await updatePay(id,{status:"rejected",rejectReason:bulkRejectReason}); }
+    setSelectedPays(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
+  };
+  const bulkApproveWds=async()=>{
+    setBulkLoading(true);
+    for(const id of selectedWds){ await approveWd(id); }
+    setSelectedWds(new Set());setBulkLoading(false);
+  };
+  const bulkRejectWds=async()=>{
+    setBulkLoading(true);
+    for(const id of selectedWds){ await updateWd(id,{status:"rejected",adminNote:bulkRejectReason}); }
+    setSelectedWds(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
+  };
+  const bulkPayWds=async()=>{
+    setBulkLoading(true);
+    for(const id of selectedWds){ await adminPayWd(id); }
+    setSelectedWds(new Set());setBulkLoading(false);
+  };
+
   const handleReceiptUpload=(id,e)=>{
     const file=e.target.files?.[0];if(!file)return;
     const reader=new FileReader();
@@ -3352,11 +3386,42 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       <div className="space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Payment Confirmations</p>
         <FilterBar value={payFilter} onChange={setPayFilter}/>
+
+        {/* Bulk action bar for payments */}
+        {filteredPays.some(p=>p.status==="pending")&&(
+          <div className="flex items-center gap-2 p-2 bg-white/5 border border-white/10 rounded-xl">
+            <button onClick={()=>{
+              const pendingIds=filteredPays.filter(p=>p.status==="pending").map(p=>p.id);
+              const allSelected=pendingIds.every(id=>selectedPays.has(id));
+              if(allSelected){setSelectedPays(new Set());}
+              else{setSelectedPays(new Set(pendingIds));}
+            }} className="text-[10px] text-blue-400 font-bold whitespace-nowrap">
+              {filteredPays.filter(p=>p.status==="pending").every(p=>selectedPays.has(p.id))?"Deselect All":"Select All"}
+            </button>
+            {selectedPays.size>0&&(
+              <>
+                <span className="text-[10px] text-white/30 flex-1">{selectedPays.size} selected</span>
+                <button onClick={bulkApprovePays} disabled={bulkLoading} className="px-2.5 py-1 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-lg text-[10px] font-bold">
+                  {bulkLoading?"…":"Approve All"}
+                </button>
+                <button onClick={()=>{setBulkRejectModal("pays");setBulkRejectReason("");}} className="px-2.5 py-1 bg-red-700/20 border border-red-700/30 text-red-400 rounded-lg text-[10px] font-bold">Reject All</button>
+              </>
+            )}
+          </div>
+        )}
+
         {filteredPays.map(p=>(
           <Card key={p.id} className="space-y-3">
-            <div className="flex items-start justify-between">
-              <div><p className="text-sm font-bold text-white">{p.investor}</p><p className="text-[10px] text-white/40 capitalize">{p.type.replace("_"," ")} · {p.cycle}</p><p className="text-[10px] text-white/30">{p.date}</p></div>
-              <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(p.amount)}</p><StatusPill status={p.status}/></div>
+            <div className="flex items-start gap-2">
+              {p.status==="pending"&&(
+                <button onClick={()=>setSelectedPays(s=>{const n=new Set(s);n.has(p.id)?n.delete(p.id):n.add(p.id);return n;})} className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${selectedPays.has(p.id)?"bg-blue-600 border-blue-600":"border-white/30"}`}>
+                  {selectedPays.has(p.id)&&<CheckCircle className="w-3 h-3 text-white"/>}
+                </button>
+              )}
+              <div className="flex items-start justify-between flex-1">
+                <div><p className="text-sm font-bold text-white">{p.investor}</p><p className="text-[10px] text-white/40 capitalize">{p.type.replace("_"," ")} · {p.cycle}</p><p className="text-[10px] text-white/30">{p.date}</p></div>
+                <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(p.amount)}</p><StatusPill status={p.status}/></div>
+              </div>
             </div>
 
             {/* Receipt upload / view */}
@@ -3390,11 +3455,44 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       <div className="space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Withdrawal Requests</p>
         <FilterBar value={wdFilter} onChange={setWdFilter}/>
+
+        {/* Bulk action bar for withdrawals */}
+        {filteredWds.some(w=>w.status==="pending")&&(
+          <div className="flex items-center gap-2 p-2 bg-white/5 border border-white/10 rounded-xl">
+            <button onClick={()=>{
+              const pendingIds=filteredWds.filter(w=>w.status==="pending").map(w=>w.id);
+              const allSelected=pendingIds.every(id=>selectedWds.has(id));
+              if(allSelected){setSelectedWds(new Set());}
+              else{setSelectedWds(new Set(pendingIds));}
+            }} className="text-[10px] text-blue-400 font-bold whitespace-nowrap">
+              {filteredWds.filter(w=>w.status==="pending").every(w=>selectedWds.has(w.id))?"Deselect All":"Select All"}
+            </button>
+            {selectedWds.size>0&&(
+              <>
+                <span className="text-[10px] text-white/30 flex-1">{selectedWds.size} selected</span>
+                <button onClick={bulkApproveWds} disabled={bulkLoading} className="px-2.5 py-1 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-lg text-[10px] font-bold">
+                  {bulkLoading?"…":"Approve All"}
+                </button>
+                <button onClick={bulkPayWds} disabled={bulkLoading} className="px-2.5 py-1 bg-blue-700/20 border border-blue-700/30 text-blue-400 rounded-lg text-[10px] font-bold">
+                  {bulkLoading?"…":"Mark Paid"}
+                </button>
+                <button onClick={()=>{setBulkRejectModal("wds");setBulkRejectReason("");}} className="px-2.5 py-1 bg-red-700/20 border border-red-700/30 text-red-400 rounded-lg text-[10px] font-bold">Reject All</button>
+              </>
+            )}
+          </div>
+        )}
+
         {filteredWds.map(w=>{
           const inv=ALL_INVESTORS.find(i=>i.id===w.investorId);
           return (
             <Card key={w.id} className="space-y-3">
-              <div className="flex items-start justify-between">
+              <div className="flex items-start gap-2">
+                {w.status==="pending"&&(
+                  <button onClick={()=>setSelectedWds(s=>{const n=new Set(s);n.has(w.id)?n.delete(w.id):n.add(w.id);return n;})} className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${selectedWds.has(w.id)?"bg-blue-600 border-blue-600":"border-white/30"}`}>
+                    {selectedWds.has(w.id)&&<CheckCircle className="w-3 h-3 text-white"/>}
+                  </button>
+                )}
+              <div className="flex items-start justify-between flex-1">
                 <div><p className="text-sm font-bold text-white">{w.investor}</p><p className="text-[10px] text-white/40 capitalize">{w.type.replace(/_/g," ")} · {w.date}</p></div>
                 <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(w.amount)}</p><StatusPill status={w.status}/></div>
               </div>
@@ -3451,6 +3549,22 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
           <div className="relative max-w-sm w-full">
             <button onClick={()=>setReceiptModal(null)} className="absolute -top-10 right-0 text-white/60 hover:text-white font-bold text-sm">Close ×</button>
             <img src={receiptModal} alt="Payment receipt" className="w-full rounded-2xl border border-white/10"/>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk reject modal */}
+      {bulkRejectModal&&(
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center p-4">
+          <div className="bg-[#0d1f3c] border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4">
+            <p className="text-sm font-black text-white">Reject {bulkRejectModal==="pays"?selectedPays.size:selectedWds.size} {bulkRejectModal==="pays"?"payment":"withdrawal"}(s)</p>
+            <textarea value={bulkRejectReason} onChange={e=>setBulkRejectReason(e.target.value)} placeholder="Reason for rejection (optional)" rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none resize-none"/>
+            <div className="flex gap-3">
+              <button onClick={()=>setBulkRejectModal(null)} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white/60 font-bold rounded-xl text-sm">Cancel</button>
+              <button onClick={bulkRejectModal==="pays"?bulkRejectPays:bulkRejectWds} disabled={bulkLoading} className="flex-1 py-2.5 bg-red-700 hover:bg-red-600 text-white font-bold rounded-xl text-sm">
+                {bulkLoading?"…":"Confirm Reject"}
+              </button>
+            </div>
           </div>
         </div>
       )}
