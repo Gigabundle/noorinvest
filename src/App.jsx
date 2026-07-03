@@ -4027,9 +4027,15 @@ const BottomNav=({active,onChange,pendingCount})=>{
 
 // ── Admin Panel ──────────────────────────────────────────────────────────────
 // ── Admin Market Screen ───────────────────────────────────────────────────────
-const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
+const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPays})=>{
   const [tab,setTab]=useState("active");
   const [showList,setShowList]=useState(false);
+  const [cycles,setCyclesLocal]=useState(cyclesProp?.length>0?cyclesProp:CYCLES_DATA);
+
+  // Load cycles fresh from Supabase on mount
+  useEffect(()=>{
+    api.getCycles().then(data=>{ if(data&&data.length>0) setCyclesLocal(data); });
+  },[]);
   const [showBuy,setShowBuy]=useState(false);
   const [selectedSlot,setSelectedSlot]=useState(null);
   const [listForm,setListForm]=useState({investorId:"company",cycleId:cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"",capital:""});
@@ -4136,6 +4142,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles,pays,setPays})=>{
           <div>
             <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">From Cycle</p>
             <select value={listForm.cycleId||""} onChange={e=>setListForm(f=>({...f,cycleId:e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none">
+              {cycles.length===0&&<option value="" className="bg-slate-900">Loading cycles…</option>}
               {cycles.filter(c=>c.status!=="archived").map(c=>(
                 <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
               ))}
