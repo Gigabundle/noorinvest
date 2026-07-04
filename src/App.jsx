@@ -3025,6 +3025,29 @@ const MembersScreen=({investors,setInvestors})=>{
     const wdRows=(wds.data||[]).map(w=>["Withdrawal",w.investor_name,w.amount,`${w.type} · ${w.bank} ${w.account}`,w.date,w.status,w.admin_note||""]);
     downloadCSV(`noorinvest-history-${new Date().toISOString().slice(0,10)}.csv`,[headers,...payRows,...wdRows]);
   };
+  const [entryTypes,setEntryTypes]=useState({});
+
+  useEffect(()=>{
+    // Load latest payment type per investor to determine entry category
+    supabase.from('payments').select('investor_id,type').eq('status','approved')
+      .then(({data})=>{
+        if(!data) return;
+        const types={};
+        data.forEach(p=>{
+          // Only set if not already set (first approved payment wins)
+          if(!types[p.investor_id]) types[p.investor_id]=p.type;
+        });
+        setEntryTypes(types);
+      }).catch(()=>{});
+  },[]);
+
+  const getEntryTag=(inv)=>{
+    const t=entryTypes[inv.id];
+    if(t==="slot_purchase") return {label:"Slot Buyer",color:"bg-purple-700/20 border-purple-700/30 text-purple-400"};
+    if(t==="rollover") return {label:"Rollover",color:"bg-amber-700/20 border-amber-700/30 text-amber-400"};
+    return {label:"Direct",color:"bg-blue-700/20 border-blue-700/30 text-blue-400"};
+  };
+
   const filtered=investors.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search));
   const sortedFiltered=[...filtered].sort((a,b)=>{
     if(sortBy==="capital")return b.capital-a.capital;
@@ -3218,7 +3241,13 @@ const MembersScreen=({investors,setInvestors})=>{
           ):(
             <button key={inv.id} onClick={()=>setSel(inv)} className="w-full flex items-center gap-3 p-3.5 bg-white/5 border border-white/10 rounded-xl hover:border-white/20 transition-all text-left">
               <div className="w-9 h-9 rounded-full bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><User className="w-4 h-4 text-blue-400"/></div>
-              <div className="flex-1 min-w-0"><p className="text-xs font-bold text-white truncate">{inv.name}</p><p className="text-[10px] text-white/40">{fmt(inv.capital)} · {inv.stake}%</p></div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-bold text-white truncate">{inv.name}</p>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-bold border flex-shrink-0 ${getEntryTag(inv).color}`}>{getEntryTag(inv).label}</span>
+                </div>
+                <p className="text-[10px] text-white/40">{fmt(inv.capital)} · {inv.stake}%</p>
+              </div>
               <div className="text-right flex-shrink-0"><p className="text-xs font-black text-emerald-400 font-mono">{fmt(inv.profit)}</p><Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/></div>
             </button>
           )
