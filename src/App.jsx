@@ -3549,6 +3549,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
                   </button>
                 </div>
               )}
+              </div>
             </Card>
           );
         })}
