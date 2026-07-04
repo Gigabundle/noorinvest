@@ -4399,7 +4399,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
   );
 };
 
-const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
+const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,adminDataReady,onSignOut})=>{
   const savedAdminView = (() => { try { return localStorage.getItem('noorinvest_admin_view')||VIEWS.DASH; } catch { return VIEWS.DASH; } })();
   const [view,setView]=useState(savedAdminView);
   const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch {}; };
@@ -4414,6 +4414,9 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
       setAdminLoaded(true);
     });
   },[]);
+
+  // Show spinner until both root data AND investors are loaded
+  const isReady = adminDataReady && adminLoaded;
   const [thresholds,setThresholds]=useState(INIT_THRESHOLDS);
   const [pdfs,setPdfs]=useState(INIT_PDFS);
   const pendingCount=pays.filter(p=>p.status==="pending").length+wds.filter(w=>w.status==="pending").length;
@@ -4477,7 +4480,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
   const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.MARKET]:"Secondary Market",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
 
-  if(!adminLoaded) return(
+  if(!isReady) return(
     <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
       <div className="flex flex-col items-center gap-4">
         <Loader className="w-10 h-10 text-red-400 animate-spin"/>
@@ -4567,6 +4570,7 @@ export default function NoorInvest() {
   const [pays,setPays]=useState(INIT_PAYMENTS);
   const [wds,setWds]=useState(INIT_WITHDRAWALS);
   const [cycles,setCycles]=useState(CYCLES_DATA);
+  const [adminDataReady,setAdminDataReady]=useState(false);
   const publishedTNC=tncHistory.length>0?tncHistory[tncHistory.length-1]:null;
 
   // Restore session on page load
@@ -4582,11 +4586,20 @@ export default function NoorInvest() {
 
   // Load live data from Supabase on startup
   useEffect(()=>{
-    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); } });
-    api.getPayments().then(data=>{ if(data) setPays(data); });
-    api.getWithdrawals().then(data=>{ if(data) setWds(data); });
-    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
-    api.getThresholds().then(data=>{ if(data) setLiveThresholds(data); });
+    Promise.all([
+      api.getCycles(),
+      api.getPayments(),
+      api.getWithdrawals(),
+      api.getMarketSlots(),
+      api.getThresholds(),
+    ]).then(([cyclesData,paysData,wdsData,slotsData,thresholdsData])=>{
+      if(cyclesData){ updateInvestorCycles(cyclesData); setCycles(cyclesData); }
+      if(paysData) setPays(paysData);
+      if(wdsData) setWds(wdsData);
+      if(slotsData) setSlots(slotsData);
+      if(thresholdsData) setLiveThresholds(thresholdsData);
+      setAdminDataReady(true);
+    });
     api.getTncDraft().then(data=>{ if(data && !tncDraftEdited.current) setTncDraftRaw(data); });
     api.getTncHistory().then(data=>{ if(data) setTncHistory(data); });
   },[]);
@@ -4615,7 +4628,7 @@ export default function NoorInvest() {
     [V.REG]:<RegScreen nav={nav} publishedTNC={publishedTNC}/>,
     [V.DONE]:<DoneScreen nav={nav} data={vd}/>,
     [V.ADMIN_LOGIN]:<AdminScreen nav={nav}/>,
-    [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} cycles={cycles} setCycles={setCycles} onSignOut={()=>nav(V.LAND)}/>,
+    [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} cycles={cycles} setCycles={setCycles} adminDataReady={adminDataReady} onSignOut={()=>nav(V.LAND)}/>,
     [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} cycles={cycles} onSignOut={()=>nav(V.LAND)}/>,
   };
   return (
