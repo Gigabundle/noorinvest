@@ -3401,8 +3401,15 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const adminPayWd=id=>updateWd(id,{status:"approved",adminNote:"Admin-initiated payment"});
 
   const confirmReject=()=>{
-    if(rejectModal.type==="pay")updatePay(rejectModal.id,{status:"rejected",rejectReason});
-    else updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
+    if(rejectModal.type==="pay") updatePay(rejectModal.id,{status:"rejected",rejectReason});
+    else {
+      updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
+      // Reset profit_withdrawn so investor can resubmit after rejection
+      const wd=wds.find(w=>w.id===rejectModal.id);
+      if(wd?.investorId){
+        try { supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId); } catch {}
+      }
+    }
     setRejectModal(null);setRejectReason("");
   };
 
@@ -3424,7 +3431,13 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   };
   const bulkRejectWds=async()=>{
     setBulkLoading(true);
-    for(const id of selectedWds){ await updateWd(id,{status:"rejected",adminNote:bulkRejectReason}); }
+    for(const id of selectedWds){
+      await updateWd(id,{status:"rejected",adminNote:bulkRejectReason});
+      const wd=wds.find(w=>w.id===id);
+      if(wd?.investorId){
+        try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId); } catch {}
+      }
+    }
     setSelectedWds(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
   };
   const bulkPayWds=async()=>{
