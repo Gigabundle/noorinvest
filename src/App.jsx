@@ -91,7 +91,19 @@ const todayStr = () => new Date().toISOString().slice(0,10);
 const fmtAmt  = v  => { const d=String(v).replace(/[^\d]/g,""); return d?Number(d).toLocaleString("en-NG"):""; };
 const parseAmt= s  => Number(String(s).replace(/,/g,""))||0;
 const netCap  = inv=> Math.max(0,inv.capital-inv.approved_withdrawals);
+// Dynamic profit split based on actual capital positions
+// Company capital = pool * (company_stake_pct / investor_split) — original agreed terms
 const companyCapital = c => c.investor_split>0 ? c.pool*(c.company_stake_pct/c.investor_split) : 0;
+// Actual split % derived from real capital positions (changes as slots are acquired)
+const actualSplit = c => {
+  const cc = companyCapital(c);
+  const total = (c.pool||0) + cc;
+  if(total===0) return {investorPct: c.investor_split||70, companyPct: c.company_stake_pct||30};
+  return {
+    investorPct: Number(((c.pool/total)*100).toFixed(4)),
+    companyPct: Number(((cc/total)*100).toFixed(4)),
+  };
+};
 const addAudit = (inv, action) => ({...inv, auditLog:[...(inv.auditLog||[]), {date:new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}), action}]});
 
 // Pro-Rata engine. Assumes full-cycle participation since per-investor entry-date tracking
@@ -1413,15 +1425,16 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
         </Card>
       )}
       {myCycles.map(c=>{
-        const investor_profit  = (c.total_profit||0)*(c.investor_split/100);
-        const company_retained = (c.total_profit||0)*(c.company_stake_pct/100);
+        const {investorPct, companyPct} = actualSplit(c);
+        const investor_profit  = (c.total_profit||0)*(investorPct/100);
+        const company_retained = (c.total_profit||0)*(companyPct/100);
         const company_capital  = companyCapital(c);
         const total_portfolio  = c.pool + company_capital;
         return(
           <div key={c.id} className="space-y-4">
             <Card className="space-y-3">
               <Label>Cycle Summary — {c.name}</Label>
-              {[["Total Portfolio",fmt(total_portfolio)],["Investor Pool (70%)",fmt(c.pool)],["Company Stake (30%)",fmt(company_capital)],["Net Profit",fmt(c.total_profit)],["Investor Profit",fmt(investor_profit)],["Company Retained",fmt(company_retained)],["Profit Rate",`${c.profit_rate}%`]].map(([l,v])=>(
+              {[[`Total Portfolio`,fmt(total_portfolio)],[`Investor Pool (${investorPct.toFixed(2)}%)`,fmt(c.pool)],[`Company Stake (${companyPct.toFixed(2)}%)`,fmt(company_capital)],[`Net Profit`,fmt(c.total_profit)],[`Investor Profit`,fmt(investor_profit)],[`Company Retained`,fmt(company_retained)],[`Profit Rate`,`${c.profit_rate}%`]].map(([l,v])=>(
                 <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold font-mono">{v}</span></div>
               ))}
             </Card>
@@ -2624,14 +2637,15 @@ const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
   const openCycle=cycles.find(c=>c.status==="open");
   const closedCycles=cycles.filter(c=>c.status==="closed"&&c.total_profit!=null);
   const lastClosed=closedCycles.length?closedCycles.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b):null;
-  const companyRetained=lastClosed?lastClosed.total_profit*(lastClosed.company_stake_pct/100):0;
+  const companyRetained=lastClosed?(()=>{const {companyPct}=actualSplit(lastClosed);return lastClosed.total_profit*(companyPct/100);})():0;
+  const companyRetainedPct=lastClosed?actualSplit(lastClosed).companyPct:30;
   return (
     <div className="space-y-5 pb-24">
       <div><p className="text-xs text-white/40">Admin Panel</p><h1 className="text-xl font-black text-white">Dashboard</h1></div>
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Total Investor Pool" value={fmtM(totalPool)}  sub="22 investors"      icon={Wallet}      color="text-blue-400"    bg="bg-blue-700/10 border-blue-700/20"/>
         <StatCard label="Last Cycle Profit"   value={lastClosed?fmtM(lastClosed.total_profit):"—"} sub={lastClosed?lastClosed.name:"No closed cycle yet"}      icon={TrendingUp}  color="text-emerald-400" bg="bg-emerald-700/10 border-emerald-700/20"/>
-        <StatCard label="Company Retained"    value={lastClosed?fmtM(companyRetained):"—"} sub={lastClosed?`${lastClosed.company_stake_pct}% of net profit`:"—"}    icon={Building2}   color="text-purple-400"  bg="bg-purple-700/10 border-purple-700/20"/>
+        <StatCard label="Company Retained"    value={lastClosed?fmtM(companyRetained):"—"} sub={lastClosed?`${companyRetainedPct.toFixed(2)}% of net profit`:"—"}    icon={Building2}   color="text-purple-400"  bg="bg-purple-700/10 border-purple-700/20"/>
         <StatCard label="Pending Actions"     value={pendingCount}      sub="Require attention" icon={CheckSquare} color="text-amber-400"   bg="bg-amber-700/10 border-amber-700/20"/>
       </div>
       {pendingCount>0&&<Banner type="warning" msg={`${pendingCount} pending items require your attention.`}/>}
@@ -2893,13 +2907,13 @@ const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
     "",
     `Investor Pool: ${fmt(c.pool||0)}`,
     `Investors: ${c.investors}`,
-    `Company Stake: ${c.company_stake_pct}% (${fmt(companyCapital(c))})`,
+    `Company Stake: ${actualSplit(c).companyPct.toFixed(2)}% (${fmt(companyCapital(c))})`,
     `Investor Split: ${c.investor_split}%`,
     `Auto-Rollover Window: ${c.rollover_days} days`,
     ...(c.profit_rate?[`Profit Rate: ${c.profit_rate}%`]:[]),
     ...(c.total_profit!=null?[
       `Total Distributed Profit: ${fmt(c.total_profit)}`,
-      `Company Retained (${c.company_stake_pct}%): ${fmt(c.total_profit*(c.company_stake_pct/100))}`,
+      `Company Retained (${actualSplit(c).companyPct.toFixed(2)}%): ${fmt(c.total_profit*(actualSplit(c).companyPct/100))}`,
       `Investor Pool Share (${c.investor_split}%): ${fmt(c.total_profit*(c.investor_split/100))}`,
     ]:[]),
   ].join("\n");
