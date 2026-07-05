@@ -1242,8 +1242,8 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
     </div>
   );
 
-  // Show "already submitted" only if profit is withdrawn AND investor has no capital to action
-  if(investor.profit_withdrawn && !investor.capital) return(
+  // Show "already submitted" whenever profit_withdrawn is true - admin must act first
+  if(investor.profit_withdrawn) return(
     <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
       <div className="w-16 h-16 rounded-full bg-blue-700/10 border-2 border-blue-700/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-blue-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Already Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your withdrawal request is pending admin approval. You will be notified once it is processed.</p></div>
@@ -3370,26 +3370,22 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const confirmReject=async ()=>{
     if(rejectModal.type==="pay") updatePay(rejectModal.id,{status:"rejected",rejectReason});
     else {
-      await updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
-      // Restore capital and reset profit_withdrawn on rejection
       const wd=wds.find(w=>w.id===rejectModal.id);
-      if(wd?.investorId){
+      // Only restore capital if withdrawal was pending (not already rejected)
+      if(wd?.investorId && wd?.status==="pending" && Number(wd.capital||0)>0){
         try {
           const {data:inv}=await supabase.from('investors').select('capital').eq('id',wd.investorId).single();
           if(inv){
             const restoredCapital=Number(inv.capital||0)+Number(wd.capital||0);
-            await supabase.from('investors').update({
-              capital:restoredCapital,
-              profit_withdrawn:false
-            }).eq('id',wd.investorId);
-            // Remove the market slot if capital was listed
-            if(wd.capital>0){
-              await supabase.from('market_slots').update({sold:true,lock:true})
-                .eq('seller_investor_id',wd.investorId).eq('sold',false);
-            }
+            await supabase.from('investors').update({capital:restoredCapital,profit_withdrawn:false}).eq('id',wd.investorId);
+            await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
           }
         } catch {}
+      } else if(wd?.investorId && wd?.status==="pending"){
+        // Profit-only rejection — just reset the flag
+        try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId); } catch {}
       }
+      await updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
     }
     setRejectModal(null);setRejectReason("");
   };
