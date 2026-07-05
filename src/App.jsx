@@ -1327,7 +1327,7 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
           <div className="flex gap-3">
             <button onClick={()=>setStep(1)} className="flex-1 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-sm">← Back</button>
             <button onClick={async ()=>{
-              if(submitting) return;
+              if(submitting||done) return;
               setSubmitting(true);
               const wdId=`wd-${Date.now()}`;
               const wdRecord={
@@ -1343,7 +1343,7 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                 status:"pending",
                 adminNote:"",
               };
-              // Save to Supabase
+              // Save withdrawal request to Supabase
               await api.submitWithdrawal({
                 id:wdId,
                 investor_id:investor.id,
@@ -1357,40 +1357,12 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                 status:"pending",
                 admin_note:"",
               });
-              // Update local state
+              // Only flag as withdrawn - NO capital deduction, NO slot creation
+              // Capital only changes when admin approves
               setInvestor(prev=>({...prev,profit_withdrawn:true}));
               api.updateInvestor(investor.id,{profit_withdrawn:true});
               setWds(ws=>[...ws,wdRecord]);
-              if(capToList>0){
-                const slotId=`slt-${Date.now()}`;
-                const slotRecord={
-                  slot_id:slotId,
-                  seller:investor.name,
-                  cycle:INVESTOR_CYCLE.name,
-                  capital:capToList,
-                  stake_pct:Number(((capToList/INVESTOR_CYCLE.pool)*100).toFixed(3)),
-                  sale_amount:capToList,
-                  days_in_fund:Math.max(0,Math.ceil((new Date()-new Date(investor.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))),
-                  expected_rate:INVESTOR_CYCLE.profit_rate,
-                  lock:false,sold:false,is_company:false,
-                };
-                setSlots(ss=>[...ss,slotRecord]);
-                // Save slot to Supabase
-                await supabase.from('market_slots').insert({
-                  slot_id:slotId,
-                  seller:investor.name,
-                  seller_investor_id:investor.id,
-                  cycle_name:INVESTOR_CYCLE.name,
-                  capital:capToList,
-                  stake_pct:Number(((capToList/INVESTOR_CYCLE.pool)*100).toFixed(3)),
-                  sale_amount:capToList,
-                  days_in_fund:slotRecord.days_in_fund,
-                  expected_rate:INVESTOR_CYCLE.profit_rate,
-                  lock:false,sold:false,is_company:false,
-                });
-              }
               setDone(true);
-              // Do NOT reset submitting - keeps button disabled after first submission
             }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
           </div>
         </div>
@@ -3359,45 +3331,40 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const approveWd=async (id)=>{
     const wd=wds.find(w=>w.id===id);
     await updateWd(id,{status:"approved"});
-    // Reset profit_withdrawn so investor can submit future withdrawals
     if(wd?.investorId){
       try {
-        await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
-      } catch {}
-    }
-    if(wd&&wd.capital>0){
-      const inv=ALL_INVESTORS.find(i=>i.id===wd.investorId);
-      const slotId=`slt-${id}`;
-      const daysInFund=inv?Math.max(0,Math.ceil((new Date()-new Date(inv.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))):0;
-      const newSlot={
-        slot_id:slotId,
-        seller:wd.investor,
-        cycle:INVESTOR_CYCLE.name,
-        capital:wd.capital,
-        stake_pct:Number(((wd.capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
-        sale_amount:wd.capital,
-        days_in_fund:daysInFund,
-        expected_rate:INVESTOR_CYCLE.profit_rate,
-        lock:false,sold:false,is_company:false,
-      };
-      setSlots(ss=>[...ss,newSlot]);
-      try {
-        await supabase.from('market_slots').insert({
-          slot_id:slotId,
-          seller:wd.investor,
-          seller_investor_id:wd.investorId,
-          cycle_name:INVESTOR_CYCLE.name,
-          capital:wd.capital,
-          stake_pct:newSlot.stake_pct,
-          sale_amount:wd.capital,
-          days_in_fund:daysInFund,
-          expected_rate:INVESTOR_CYCLE.profit_rate,
-          lock:false,sold:false,is_company:false,
-        });
+        // Fetch fresh investor data
+        const {data:inv}=await supabase.from('investors').select('capital,stake').eq('id',wd.investorId).single();
+        if(inv){
+          // Deduct capital on approval (not at submission)
+          const newCapital=Math.max(0,Number(inv.capital||0)-Number(wd.capital||0));
+          await supabase.from('investors').update({
+            capital:newCapital,
+            profit_withdrawn:false
+          }).eq('id',wd.investorId);
+          setInvestors(is=>is.map(i=>i.id===wd.investorId?{...i,capital:newCapital,profit_withdrawn:false}:i));
+          // Create market slot if capital is being listed
+          if(wd.capital>0){
+            const slotId=`slt-${id}`;
+            const daysInFund=Math.max(0,Math.ceil((new Date()-new Date(INVESTOR_CYCLE.start))/(1000*60*60*24)));
+            await supabase.from('market_slots').insert({
+              slot_id:slotId,
+              seller:wd.investor,
+              seller_investor_id:wd.investorId,
+              cycle_name:INVESTOR_CYCLE.name,
+              capital:wd.capital,
+              stake_pct:Number(((wd.capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
+              sale_amount:wd.capital,
+              days_in_fund:daysInFund,
+              expected_rate:INVESTOR_CYCLE.profit_rate,
+              lock:false,sold:false,is_company:false,
+            });
+            setSlots(ss=>[...ss,{slot_id:slotId,seller:wd.investor,cycle:INVESTOR_CYCLE.name,capital:wd.capital,sale_amount:wd.capital,sold:false,lock:false,is_company:false}]);
+          }
+        }
       } catch {}
     }
   };
-
   const adminPayWd=id=>updateWd(id,{status:"approved",adminNote:"Admin-initiated payment"});
 
   const confirmReject=async ()=>{
