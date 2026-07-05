@@ -1357,10 +1357,9 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                 status:"pending",
                 admin_note:"",
               });
-              // Only flag as withdrawn - NO capital deduction, NO slot creation
-              // Capital only changes when admin approves
+              // Await profit_withdrawn flag - must be confirmed in DB before showing done
+              await supabase.from('investors').update({profit_withdrawn:true}).eq('id',investor.id);
               setInvestor(prev=>({...prev,profit_withdrawn:true}));
-              api.updateInvestor(investor.id,{profit_withdrawn:true});
               setWds(ws=>[...ws,wdRecord]);
               setDone(true);
             }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
