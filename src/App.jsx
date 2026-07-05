@@ -3359,6 +3359,12 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const approveWd=async (id)=>{
     const wd=wds.find(w=>w.id===id);
     await updateWd(id,{status:"approved"});
+    // Reset profit_withdrawn so investor can submit future withdrawals
+    if(wd?.investorId){
+      try {
+        await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
+      } catch {}
+    }
     if(wd&&wd.capital>0){
       const inv=ALL_INVESTORS.find(i=>i.id===wd.investorId);
       const slotId=`slt-${id}`;
