@@ -1390,8 +1390,8 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
                 });
               }
               setDone(true);
-              setSubmitting(false);
-            }} disabled={submitting} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${submitting?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
+              // Do NOT reset submitting - keeps button disabled after first submission
+            }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
           </div>
         </div>
       )}
@@ -3400,14 +3400,28 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
 
   const adminPayWd=id=>updateWd(id,{status:"approved",adminNote:"Admin-initiated payment"});
 
-  const confirmReject=()=>{
+  const confirmReject=async ()=>{
     if(rejectModal.type==="pay") updatePay(rejectModal.id,{status:"rejected",rejectReason});
     else {
-      updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
-      // Reset profit_withdrawn so investor can resubmit after rejection
+      await updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
+      // Restore capital and reset profit_withdrawn on rejection
       const wd=wds.find(w=>w.id===rejectModal.id);
       if(wd?.investorId){
-        try { supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId); } catch {}
+        try {
+          const {data:inv}=await supabase.from('investors').select('capital').eq('id',wd.investorId).single();
+          if(inv){
+            const restoredCapital=Number(inv.capital||0)+Number(wd.capital||0);
+            await supabase.from('investors').update({
+              capital:restoredCapital,
+              profit_withdrawn:false
+            }).eq('id',wd.investorId);
+            // Remove the market slot if capital was listed
+            if(wd.capital>0){
+              await supabase.from('market_slots').update({sold:true,lock:true})
+                .eq('seller_investor_id',wd.investorId).eq('sold',false);
+            }
+          }
+        } catch {}
       }
     }
     setRejectModal(null);setRejectReason("");
@@ -3435,7 +3449,16 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       await updateWd(id,{status:"rejected",adminNote:bulkRejectReason});
       const wd=wds.find(w=>w.id===id);
       if(wd?.investorId){
-        try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId); } catch {}
+        try {
+          const {data:inv}=await supabase.from('investors').select('capital').eq('id',wd.investorId).single();
+          if(inv){
+            const restoredCapital=Number(inv.capital||0)+Number(wd.capital||0);
+            await supabase.from('investors').update({capital:restoredCapital,profit_withdrawn:false}).eq('id',wd.investorId);
+            if(wd.capital>0){
+              await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
+            }
+          }
+        } catch {}
       }
     }
     setSelectedWds(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
