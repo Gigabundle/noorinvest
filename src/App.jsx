@@ -2542,17 +2542,44 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   // Issue 3: Loading state — show spinner until real data arrives
   const [investorLoaded,setInvestorLoaded]=useState(false);
 
-  // Load real investor data AND active listing from Supabase together
+  // Load real investor data AND restore state from Supabase on mount
   useEffect(()=>{
     if(user?.phone){
       Promise.all([
         api.getInvestor(user.phone),
         api.getMarketSlots(),
-      ]).then(([invData, allSlots])=>{
+      ]).then(async ([invData, allSlots])=>{
         if(invData) setInvestor(invData);
+        // Restore myListing from market slots first
         if(allSlots){
-          const own=allSlots.find(s=>!s.sold&&!s.lock&&(s.seller_investor_id===user.id||s.seller===invData?.name));
-          if(own) setMyListing({...own,status:"listed",days:getDays(own.sale_amount)});
+          const ownSlot=allSlots.find(s=>!s.sold&&!s.lock&&(s.seller_investor_id===user.id||s.seller===invData?.name));
+          if(ownSlot){
+            setMyListing({...ownSlot,status:"listed",days:getDays(ownSlot.sale_amount)});
+          } else if(invData?.profit_withdrawn){
+            // No market slot but profit_withdrawn=true means pending withdrawal
+            // Restore myListing from pending withdrawal record
+            const {data:pendingWds}=await supabase
+              .from('withdrawals')
+              .select('*')
+              .eq('investor_id',invData.id)
+              .eq('status','pending')
+              .gt('capital',0)
+              .order('created_at',{ascending:false})
+              .limit(1);
+            if(pendingWds&&pendingWds.length>0){
+              const wd=pendingWds[0];
+              setMyListing({
+                slot_id:`wd-listing-${wd.id}`,
+                capital:Number(wd.capital),
+                sale_amount:Number(wd.capital),
+                cycle:wd.cycle_name||INVESTOR_CYCLE.name,
+                status:"pending",
+                sold:false,
+                lock:false,
+              });
+              setWithdrawalPending(true);
+            }
+          }
         }
         setInvestorLoaded(true);
       });
