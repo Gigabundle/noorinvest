@@ -2335,7 +2335,8 @@ const RequestsScreen = ({nav, investor}) => {
   const [loading,setLoading]=useState(true);
   const [activeTab,setActiveTab]=useState("all");
 
-  useEffect(()=>{
+  const fetchData=()=>{
+    setLoading(true);
     Promise.all([
       supabase.from('payments').select('*').eq('investor_id',investor.id).order('created_at',{ascending:false}),
       supabase.from('withdrawals').select('*').eq('investor_id',investor.id).order('created_at',{ascending:false}),
@@ -2344,7 +2345,9 @@ const RequestsScreen = ({nav, investor}) => {
       if(wds) setWithdrawals(wds);
       setLoading(false);
     }).catch(()=>setLoading(false));
-  },[investor.id]);
+  };
+
+  useEffect(()=>{ fetchData(); },[investor.id]);
 
   const allRequests=[
     ...payments.map(p=>({
@@ -2379,7 +2382,12 @@ const RequestsScreen = ({nav, investor}) => {
   return(
     <div className="space-y-5 pb-24">
       <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
-      <h2 className="text-xl font-black text-white">My Requests</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-black text-white">My Requests</h2>
+        <button onClick={fetchData} disabled={loading} className="p-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10">
+          <RefreshCw className={`w-4 h-4 text-white/40 ${loading?"animate-spin":""}`}/>
+        </button>
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
@@ -3370,19 +3378,13 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
     if(rejectModal.type==="pay") updatePay(rejectModal.id,{status:"rejected",rejectReason});
     else {
       const wd=wds.find(w=>w.id===rejectModal.id);
-      // Only restore capital if withdrawal was pending (not already rejected)
-      if(wd?.investorId && wd?.status==="pending" && Number(wd.capital||0)>0){
+      if(wd?.status==="pending"){
+        // Only reset flag - capital was NOT deducted at submission so nothing to restore
         try {
-          const {data:inv}=await supabase.from('investors').select('capital').eq('id',wd.investorId).single();
-          if(inv){
-            const restoredCapital=Number(inv.capital||0)+Number(wd.capital||0);
-            await supabase.from('investors').update({capital:restoredCapital,profit_withdrawn:false}).eq('id',wd.investorId);
-            await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
-          }
+          await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
+          // Clear any market slot if one was created
+          await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
         } catch {}
-      } else if(wd?.investorId && wd?.status==="pending"){
-        // Profit-only rejection — just reset the flag
-        try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId); } catch {}
       }
       await updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
     }
@@ -3408,20 +3410,14 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const bulkRejectWds=async()=>{
     setBulkLoading(true);
     for(const id of selectedWds){
-      await updateWd(id,{status:"rejected",adminNote:bulkRejectReason});
       const wd=wds.find(w=>w.id===id);
-      if(wd?.investorId){
+      if(wd?.status==="pending"){
         try {
-          const {data:inv}=await supabase.from('investors').select('capital').eq('id',wd.investorId).single();
-          if(inv){
-            const restoredCapital=Number(inv.capital||0)+Number(wd.capital||0);
-            await supabase.from('investors').update({capital:restoredCapital,profit_withdrawn:false}).eq('id',wd.investorId);
-            if(wd.capital>0){
-              await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
-            }
-          }
+          await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
+          await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
         } catch {}
       }
+      await updateWd(id,{status:"rejected",adminNote:bulkRejectReason});
     }
     setSelectedWds(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
   };
