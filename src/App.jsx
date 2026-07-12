@@ -1198,7 +1198,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
   );
 };
 
-const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
+const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending}) => {
   const [step,setStep]=useState(1);
   const [type,setType]=useState("");
   const [capAmt,setCapAmt]=useState("");
@@ -1242,8 +1242,8 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
     </div>
   );
 
-  // Show "already submitted" whenever profit_withdrawn is true - admin must act first
-  if(investor.profit_withdrawn) return(
+  // Show "already submitted" whenever profit_withdrawn is true OR withdrawal was just submitted this session
+  if(investor.profit_withdrawn || withdrawalPending) return(
     <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
       <div className="w-16 h-16 rounded-full bg-blue-700/10 border-2 border-blue-700/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-blue-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Already Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your withdrawal request is pending admin approval. You will be notified once it is processed.</p></div>
@@ -1360,6 +1360,7 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
               // Await profit_withdrawn flag - must be confirmed in DB before showing done
               await supabase.from('investors').update({profit_withdrawn:true}).eq('id',investor.id);
               setInvestor(prev=>({...prev,profit_withdrawn:true}));
+              if(setWithdrawalPending) setWithdrawalPending(true);
               setWds(ws=>[...ws,wdRecord]);
               setDone(true);
             }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
@@ -2540,6 +2541,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
 
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
+  const [withdrawalPending,setWithdrawalPending]=useState(false);
 
   // 4E: Notification read state keyed by investor ID so different users don't share state
   const notifKey=`noorinvest_notifs_read_${investor.id}`;
@@ -2591,7 +2593,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
         {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
+        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
         {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor}/>}
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
