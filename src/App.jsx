@@ -1198,7 +1198,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
   );
 };
 
-const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending}) => {
+const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending,myListing}) => {
   const [step,setStep]=useState(1);
   const [type,setType]=useState("");
   const [capAmt,setCapAmt]=useState("");
@@ -1248,6 +1248,16 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPend
       <div className="w-16 h-16 rounded-full bg-blue-700/10 border-2 border-blue-700/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-blue-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Already Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your withdrawal request is pending admin approval. You will be notified once it is processed.</p></div>
       <button onClick={()=>nav(IV.HOME)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Back to Home</button>
+    </div>
+  );
+
+  // Show active listing notice if investor already has a slot on the market
+  if(myListing&&!myListing.sold&&!myListing.lock) return(
+    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
+      <div className="w-16 h-16 rounded-full bg-purple-700/10 border-2 border-purple-700/30 flex items-center justify-center"><ArrowRightLeft className="w-8 h-8 text-purple-400"/></div>
+      <div><h2 className="text-xl font-black text-white">Active Market Listing</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">You have {fmt(myListing.capital)} listed on the secondary market. Withdraw that listing first before making a new request.</p></div>
+      <button onClick={()=>nav(IV.MARKET)} className="w-full py-3.5 bg-purple-700 hover:bg-purple-600 text-white font-bold rounded-xl text-sm">View My Listing</button>
+      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60">Back to Home</button>
     </div>
   );
 
@@ -2593,7 +2603,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
         {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending}/>}
+        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
         {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor}/>}
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
