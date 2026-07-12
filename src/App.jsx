@@ -1198,7 +1198,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
   );
 };
 
-const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending,myListing}) => {
+const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending,myListing,setMyListing}) => {
   const [step,setStep]=useState(1);
   const [type,setType]=useState("");
   const [capAmt,setCapAmt]=useState("");
@@ -1371,6 +1371,18 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPend
               await supabase.from('investors').update({profit_withdrawn:true}).eq('id',investor.id);
               setInvestor(prev=>({...prev,profit_withdrawn:true}));
               if(setWithdrawalPending) setWithdrawalPending(true);
+              // Set myListing so capital display shows 0 and Market screen blocks re-listing
+              if(capToList>0&&setMyListing){
+                setMyListing({
+                  slot_id:`wd-listing-${wdId}`,
+                  capital:capToList,
+                  sale_amount:capToList,
+                  cycle:INVESTOR_CYCLE.name,
+                  status:"pending",
+                  sold:false,
+                  lock:false,
+                });
+              }
               setWds(ws=>[...ws,wdRecord]);
               setDone(true);
             }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
@@ -2603,7 +2615,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
         {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing}/>}
+        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing} setMyListing={setMyListing}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
         {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor}/>}
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
