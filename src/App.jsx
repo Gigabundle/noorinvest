@@ -2384,8 +2384,8 @@ const RequestsScreen = ({nav, investor}) => {
       <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-black text-white">My Requests</h2>
-        <button onClick={fetchData} disabled={loading} className="p-2 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10">
-          <RefreshCw className={`w-4 h-4 text-white/40 ${loading?"animate-spin":""}`}/>
+        <button onClick={fetchData} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700/20 border border-blue-700/30 text-blue-400 rounded-xl text-xs font-bold">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading?"animate-spin":""}`}/>Refresh
         </button>
       </div>
 
