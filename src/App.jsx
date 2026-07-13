@@ -2703,13 +2703,21 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
   const companyRetained=lastClosed?(()=>{const {companyPct}=actualSplit(lastClosed);return lastClosed.total_profit*(companyPct/100);})():0;
   const companyRetainedPct=lastClosed?actualSplit(lastClosed).companyPct:30;
 
+  // Company profit from open cycle monthly distribution
+  const activeCycleProfit=openCycle?.total_profit||0;
+  const {companyPct:activeCoPct}=openCycle?actualSplit(openCycle):{companyPct:30};
+  const companyActiveProfit=activeCycleProfit*(activeCoPct/100);
+  // Subtract investor profits already paid out (779,739.80) to get company share
+  const investorPaidOut=activeCycleProfit-companyActiveProfit;
+  const companyMonthlyProfit=Math.max(0,activeCycleProfit-investorPaidOut);
+
   // Company profit withdrawal state
   const [showWithdraw,setShowWithdraw]=useState(false);
   const [wdSubmitting,setWdSubmitting]=useState(false);
   const [wdDone,setWdDone]=useState(false);
 
   const handleCompanyWithdraw=async()=>{
-    if(wdSubmitting||wdDone||!lastClosed||companyRetained<=0) return;
+    if(wdSubmitting||wdDone||!openCycle||companyMonthlyProfit<=0) return;
     setWdSubmitting(true);
     const wdId=`wd-company-${Date.now()}`;
     const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
@@ -2721,13 +2729,13 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
         bank:"Moniepoint MFB",
         account:"4650580467",
         type:"profit_only",
-        amount:companyRetained,
+        amount:companyMonthlyProfit,
         capital:0,
         date:dateStr,
         status:"approved",
-        admin_note:`Company profit from ${lastClosed.name} — auto-approved`,
+        admin_note:`Company June 2026 profit from ${openCycle.name} — auto-approved`,
       });
-      if(setWds) setWds(ws=>[...ws,{id:wdId,investor:"Gigabundle Ltd (Company)",investorId:"company",type:"profit_only",amount:companyRetained,date:dateStr,status:"approved",adminNote:"Company profit — auto-approved"}]);
+      if(setWds) setWds(ws=>[...ws,{id:wdId,investor:"Gigabundle Ltd (Company)",investorId:"company",type:"profit_only",amount:companyMonthlyProfit,date:dateStr,status:"approved",adminNote:"Company June profit — auto-approved"}]);
       setWdDone(true);
     } catch(e){ console.error(e); }
     setWdSubmitting(false);
@@ -2744,13 +2752,13 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
       {pendingCount>0&&<Banner type="warning" msg={`${pendingCount} pending items require your attention.`}/>}
 
       {/* Company profit withdrawal */}
-      {lastClosed&&companyRetained>0&&(
+      {openCycle&&companyMonthlyProfit>0&&(
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <Label>Company Profit — {lastClosed.name}</Label>
-              <p className="text-xl font-black text-purple-400 font-mono">{fmt(companyRetained)}</p>
-              <p className="text-[10px] text-white/40">{companyRetainedPct.toFixed(2)}% of net profit</p>
+              <Label>Company Profit — June 2026</Label>
+              <p className="text-xl font-black text-purple-400 font-mono">{fmt(companyMonthlyProfit)}</p>
+              <p className="text-[10px] text-white/40">{activeCoPct.toFixed(2)}% of June distribution · {openCycle.name}</p>
             </div>
             <Building2 className="w-8 h-8 text-purple-400/40"/>
           </div>
@@ -2764,7 +2772,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
                   <div className="space-y-3">
                     <Card className="space-y-2">
                       <Label>Payment Account</Label>
-                      {[["Bank","Moniepoint MFB"],["Account","4650580467"],["Name","Gigabundle Ltd"],["Amount",fmt(companyRetained)]].map(([l,v])=>(
+                      {[["Bank","Moniepoint MFB"],["Account","4650580467"],["Name","Gigabundle Ltd"],["Amount",fmt(companyMonthlyProfit)]].map(([l,v])=>(
                         <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold">{v}</span></div>
                       ))}
                     </Card>
