@@ -1341,51 +1341,57 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
             <button onClick={async ()=>{
               if(submitting||done) return;
               setSubmitting(true);
+
+              const slotId=`slt-${Date.now()}`;
               const wdId=`wd-${Date.now()}`;
-              const wdRecord={
-                id:wdId,
-                investorId:investor.id,
-                investor:investor.name,
-                bank:investor.bank,
-                account:investor.account||investor.account_number,
-                type,
-                amount:profitAmt+capToList,
-                capital:capToList,
-                date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
-                status:"pending",
-                adminNote:"",
-              };
-              // Save withdrawal request to Supabase
-              await api.submitWithdrawal({
-                id:wdId,
-                investor_id:investor.id,
-                investor_name:investor.name,
-                bank:investor.bank,
-                account:investor.account||investor.account_number,
-                type,
-                amount:profitAmt+capToList,
-                capital:capToList,
-                date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
-                status:"pending",
-                admin_note:"",
-              });
-              // Await profit_withdrawn flag - must be confirmed in DB before showing done
-              await supabase.from('investors').update({profit_withdrawn:true}).eq('id',investor.id);
-              setInvestor(prev=>({...prev,profit_withdrawn:true}));
-              if(setWithdrawalPending) setWithdrawalPending(true);
-              // Set myListing so capital display shows 0 and Market screen blocks re-listing
-              if(capToList>0&&setMyListing){
-                setMyListing({
-                  slot_id:`wd-listing-${wdId}`,
+              const daysInFund=Math.max(0,Math.ceil((new Date()-new Date(INVESTOR_CYCLE.start))/(1000*60*60*24)));
+
+              // CAPITAL → listed on market immediately, no withdrawal record needed
+              if(capToList>0){
+                const slotRecord={
+                  slot_id:slotId,
+                  seller:investor.name,
+                  seller_investor_id:investor.id,
+                  cycle_name:INVESTOR_CYCLE.name,
+                  capital:capToList,
+                  stake_pct:Number(((capToList/(INVESTOR_CYCLE.pool||100400000))*100).toFixed(3)),
+                  sale_amount:capToList,
+                  days_in_fund:daysInFund,
+                  expected_rate:INVESTOR_CYCLE.profit_rate,
+                  lock:false,sold:false,is_company:false,
+                };
+                await supabase.from('market_slots').insert(slotRecord);
+                if(setMyListing) setMyListing({
+                  slot_id:slotId,
                   capital:capToList,
                   sale_amount:capToList,
                   cycle:INVESTOR_CYCLE.name,
-                  status:"pending",
-                  sold:false,
-                  lock:false,
+                  status:"listed",
+                  sold:false,lock:false,
                 });
               }
-              setWds(ws=>[...ws,wdRecord]);
+
+              // PROFIT → goes to admin approval queue
+              if(profitAmt>0){
+                await api.submitWithdrawal({
+                  id:wdId,
+                  investor_id:investor.id,
+                  investor_name:investor.name,
+                  bank:investor.bank,
+                  account:investor.account||investor.account_number,
+                  type:"profit_only",
+                  amount:profitAmt,
+                  capital:0,
+                  date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
+                  status:"pending",
+                  admin_note:"",
+                });
+                // Flag profit as submitted
+                await supabase.from('investors').update({profit_withdrawn:true}).eq('id',investor.id);
+                setInvestor(prev=>({...prev,profit_withdrawn:true}));
+                if(setWithdrawalPending) setWithdrawalPending(true);
+              }
+
               setDone(true);
             }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
           </div>
@@ -3378,30 +3384,62 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       const { data:payData, error:payErr } = await supabase
         .from('payments').select('*').eq('id',id).single();
       if(payErr || !payData){ console.error('approvePay: payment fetch failed',payErr); return; }
-      if(payData.type!=='new_investment'||!payData.investor_id||!payData.amount) return;
 
       const invId=payData.investor_id;
       const amount=Number(payData.amount);
 
-      const { data:invData, error:invErr } = await supabase
-        .from('investors').select('capital,stake').eq('id',invId).single();
-      if(invErr || !invData){ console.error('approvePay: investor fetch failed',invErr,invId); return; }
+      // Handle slot purchase — transfer stake from seller to buyer
+      if(payData.type==='slot_purchase'&&payData.slot_id){
+        const {data:slot}=await supabase.from('market_slots').select('*').eq('slot_id',payData.slot_id).single();
+        if(slot){
+          const sellerCapital=Number(slot.capital||0);
+          const cycPool=INVESTOR_CYCLE.pool||100400000;
 
-      const cycPool=INVESTOR_NEXT_CYCLE.pool||101400000;
-      const newCapital=Number(invData.capital||0)+amount;
-      const newStake=Number(((newCapital/cycPool)*100).toFixed(3));
-      const { error:updErr } = await supabase
-        .from('investors').update({capital:newCapital,stake:newStake}).eq('id',invId);
-      if(updErr){ console.error('approvePay: capital update failed',updErr); return; }
-      setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newCapital,stake:newStake}:i));
+          // Deduct from seller
+          if(slot.seller_investor_id){
+            const {data:seller}=await supabase.from('investors').select('capital,stake').eq('id',slot.seller_investor_id).single();
+            if(seller){
+              const newSellerCap=Math.max(0,Number(seller.capital||0)-sellerCapital);
+              const newSellerStake=Number(((newSellerCap/cycPool)*100).toFixed(3));
+              await supabase.from('investors').update({capital:newSellerCap,stake:newSellerStake,profit_withdrawn:false}).eq('id',slot.seller_investor_id);
+              setInvestors(is=>is.map(i=>i.id===slot.seller_investor_id?{...i,capital:newSellerCap,stake:newSellerStake,profit_withdrawn:false}:i));
+            }
+          }
 
-      const { data:cycData } = await supabase
-        .from('cycles').select('id,pool').eq('name',payData.cycle_name).maybeSingle();
-      if(cycData){
-        const newPool=Number(cycData.pool||0)+amount;
-        await supabase.from('cycles').update({pool:newPool}).eq('id',cycData.id);
-        setCycles(cs=>cs.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
-        updateInvestorCycles(cycles.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
+          // Add to buyer
+          if(invId){
+            const {data:buyer}=await supabase.from('investors').select('capital,stake').eq('id',invId).single();
+            if(buyer){
+              const newBuyerCap=Number(buyer.capital||0)+sellerCapital;
+              const newBuyerStake=Number(((newBuyerCap/cycPool)*100).toFixed(3));
+              await supabase.from('investors').update({capital:newBuyerCap,stake:newBuyerStake}).eq('id',invId);
+              setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newBuyerCap,stake:newBuyerStake}:i));
+            }
+          }
+
+          // Mark slot as sold
+          await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slot.slot_id);
+          setSlots(ss=>ss.map(s=>s.slot_id===slot.slot_id?{...s,sold:true,lock:true}:s));
+        }
+        return;
+      }
+
+      // Handle new investment — add capital to buyer
+      if(payData.type==='new_investment'&&invId&&amount){
+        const {data:invData}=await supabase.from('investors').select('capital,stake').eq('id',invId).single();
+        if(!invData) return;
+        const cycPool=INVESTOR_NEXT_CYCLE.pool||100400000;
+        const newCapital=Number(invData.capital||0)+amount;
+        const newStake=Number(((newCapital/cycPool)*100).toFixed(3));
+        await supabase.from('investors').update({capital:newCapital,stake:newStake}).eq('id',invId);
+        setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newCapital,stake:newStake}:i));
+        const {data:cycData}=await supabase.from('cycles').select('id,pool').eq('name',payData.cycle_name).maybeSingle();
+        if(cycData){
+          const newPool=Number(cycData.pool||0)+amount;
+          await supabase.from('cycles').update({pool:newPool}).eq('id',cycData.id);
+          setCycles(cs=>cs.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
+          updateInvestorCycles(cycles.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
+        }
       }
     } catch(e){ console.error('approvePay error:',e); }
   };
@@ -3411,35 +3449,13 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
     await updateWd(id,{status:"approved"});
     if(wd?.investorId){
       try {
-        // Fetch fresh investor data
-        const {data:inv}=await supabase.from('investors').select('capital,stake').eq('id',wd.investorId).single();
-        if(inv){
-          // Deduct capital on approval (not at submission)
-          const newCapital=Math.max(0,Number(inv.capital||0)-Number(wd.capital||0));
-          await supabase.from('investors').update({
-            capital:newCapital,
-            profit_withdrawn:false
-          }).eq('id',wd.investorId);
-          setInvestors(is=>is.map(i=>i.id===wd.investorId?{...i,capital:newCapital,profit_withdrawn:false}:i));
-          // Create market slot if capital is being listed
-          if(wd.capital>0){
-            const slotId=`slt-${id}`;
-            const daysInFund=Math.max(0,Math.ceil((new Date()-new Date(INVESTOR_CYCLE.start))/(1000*60*60*24)));
-            await supabase.from('market_slots').insert({
-              slot_id:slotId,
-              seller:wd.investor,
-              seller_investor_id:wd.investorId,
-              cycle_name:INVESTOR_CYCLE.name,
-              capital:wd.capital,
-              stake_pct:Number(((wd.capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
-              sale_amount:wd.capital,
-              days_in_fund:daysInFund,
-              expected_rate:INVESTOR_CYCLE.profit_rate,
-              lock:false,sold:false,is_company:false,
-            });
-            setSlots(ss=>[...ss,{slot_id:slotId,seller:wd.investor,cycle:INVESTOR_CYCLE.name,capital:wd.capital,sale_amount:wd.capital,sold:false,lock:false,is_company:false}]);
-          }
-        }
+        // Profit-only withdrawal — reset profit_withdrawn flag, profit stays in DB
+        // Capital is handled through market slot approval (approvePay)
+        await supabase.from('investors').update({
+          profit_withdrawn:false,
+          profit:0,
+        }).eq('id',wd.investorId);
+        setInvestors(is=>is.map(i=>i.id===wd.investorId?{...i,profit_withdrawn:false,profit:0}:i));
       } catch {}
     }
   };
