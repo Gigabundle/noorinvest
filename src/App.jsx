@@ -3389,16 +3389,24 @@ const MembersScreen=({investors,setInvestors})=>{
               <Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/>
             </button>
           ):(
-            <button key={inv.id} onClick={()=>setSel(inv)} className="w-full flex items-center gap-3 p-3.5 bg-white/5 border border-white/10 rounded-xl hover:border-white/20 transition-all text-left">
-              <div className="w-9 h-9 rounded-full bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><User className="w-4 h-4 text-blue-400"/></div>
+            <button key={inv.id} onClick={()=>setSel(inv)} className={`w-full flex items-center gap-3 p-3.5 border rounded-xl hover:border-white/20 transition-all text-left ${inv.id==='company'?'bg-purple-700/10 border-purple-700/30':'bg-white/5 border-white/10'}`}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${inv.id==='company'?'bg-purple-700/20 border border-purple-700/40':'bg-blue-700/20 border border-blue-700/30'}`}>
+                {inv.id==='company'?<Building2 className="w-4 h-4 text-purple-400"/>:<User className="w-4 h-4 text-blue-400"/>}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <p className="text-xs font-bold text-white truncate">{inv.name}</p>
-                  <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-bold border flex-shrink-0 ${getEntryTag(inv).color}`}>{getEntryTag(inv).label}</span>
+                  {inv.id==='company'
+                    ? <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold border flex-shrink-0 bg-purple-700/20 border-purple-700/30 text-purple-400">Company</span>
+                    : <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-bold border flex-shrink-0 ${getEntryTag(inv).color}`}>{getEntryTag(inv).label}</span>
+                  }
                 </div>
                 <p className="text-[10px] text-white/40">{fmt(inv.capital)} · {inv.stake}%</p>
               </div>
-              <div className="text-right flex-shrink-0"><p className="text-xs font-black text-emerald-400 font-mono">{fmt(inv.profit)}</p><Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/></div>
+              <div className="text-right flex-shrink-0">
+                <p className="text-xs font-black text-emerald-400 font-mono">{fmt(inv.profit)}</p>
+                <Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/>
+              </div>
             </button>
           )
         ))}
