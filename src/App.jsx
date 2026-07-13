@@ -4330,6 +4330,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
   const [tab,setTab]=useState("active");
   const [showList,setShowList]=useState(false);
   const [cycles,setCyclesLocal]=useState(cyclesProp?.length>0?cyclesProp:CYCLES_DATA);
+  const [purchasing,setPurchasing]=useState(null);
 
   // Load cycles fresh from Supabase on mount
   useEffect(()=>{
@@ -4396,48 +4397,30 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
     setListLoading(false);
   };
 
-  const handleAdminBuy=async(slot)=>{
+  const handleAdminConfirm=async (slotId,amt)=>{
+    const slot=slots.find(s=>s.slot_id===slotId);
     const payId=`pay-${Date.now()}`;
+    const amount=slot?.sale_amount||amt;
+    const cycleName=slot?.cycle||slot?.cycle_name||INVESTOR_CYCLE.name;
     const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-    try {
-      // Mark slot as sold
-      await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slot.slot_id);
-      setSlots(ss=>ss.map(s=>s.slot_id===slot.slot_id?{...s,sold:true,lock:true}:s));
 
-      // Deduct capital from seller immediately (admin self-approves)
-      if(slot.seller_investor_id){
-        const {data:seller}=await supabase.from('investors').select('capital,stake').eq('id',slot.seller_investor_id).single();
-        if(seller){
-          const cycPool=cycles.find(c=>c.status==="open")?.pool||100400000;
-          const newSellerCap=Math.max(0,Number(seller.capital||0)-Number(slot.capital||0));
-          const newSellerStake=Number(((newSellerCap/cycPool)*100).toFixed(3));
-          await supabase.from('investors').update({
-            capital:newSellerCap,
-            stake:newSellerStake,
-            profit_withdrawn:false,
-          }).eq('id',slot.seller_investor_id);
-          setInvestors(is=>is.map(i=>i.id===slot.seller_investor_id?{...i,capital:newSellerCap,stake:newSellerStake,profit_withdrawn:false}:i));
-        }
-      }
+    // Lock slot — not sold until admin approves payment
+    setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,lock:true}:s));
+    setPays(ps=>[...ps,{
+      id:payId,type:"slot_purchase",
+      investor:"Gigabundle Ltd (Company)",investorId:"company",
+      amount,cycle:cycleName,date:dateStr,status:"pending",
+      slot_id:slotId,seller:slot?.seller||"",receipt:null,rejectReason:"",
+    }]);
 
-      // Record the transaction as approved
-      await supabase.from('payments').insert({
-        id:payId,
-        type:"slot_purchase",
-        investor_name:"Gigabundle Ltd (Company)",
-        investor_id:"company",
-        amount:slot.sale_amount,
-        cycle_name:slot.cycle||slot.cycle_name,
-        date:dateStr,
-        status:"approved",
-        slot_id:slot.slot_id,
-        reject_reason:"Admin/Company direct purchase",
-      });
-      setPays(ps=>[...ps,{id:payId,type:"slot_purchase",investor:"Gigabundle Ltd (Company)",amount:slot.sale_amount,cycle:slot.cycle||slot.cycle_name,date:dateStr,status:"approved"}]);
-      setSelectedSlot(null);
-
-      alert(`Purchase complete. Seller's capital of ${new Intl.NumberFormat('en-NG',{style:'currency',currency:'NGN'}).format(slot.capital)} has been deducted. Pay seller to complete settlement.`);
-    } catch(e){ console.error('handleAdminBuy error:',e); }
+    await api.submitPayment({
+      id:payId,type:"slot_purchase",
+      investor_name:"Gigabundle Ltd (Company)",investor_id:"company",
+      amount,cycle_name:cycleName,date:dateStr,status:"pending",
+      slot_id:slotId,seller_name:slot?.seller||"",receipt:null,reject_reason:"",
+    });
+    try { await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId); } catch {}
+    setPurchasing(null);
   };
 
   return(
@@ -4544,7 +4527,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={()=>handleAdminBuy(s)} className="flex-1 py-2 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-700/30">Buy (Admin)</button>
+                    <button onClick={()=>setPurchasing(s)} className="flex-1 py-2 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-700/30">Buy (Company)</button>
                     <button onClick={()=>handleRemove(s.slot_id)} className="flex-1 py-2 bg-red-700/20 border border-red-700/30 text-red-400 rounded-xl text-xs font-bold hover:bg-red-700/30">Remove</button>
                   </div>
                 </Card>
@@ -4566,6 +4549,16 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
                 </Card>
               ))}
             </div>
+      )}
+
+      {/* Company purchase modal — same flow as investor but buyer is company */}
+      {purchasing&&(
+        <PurchaseModal
+          slot={purchasing}
+          investor={{name:"Gigabundle Ltd (Company)",id:"company"}}
+          onClose={()=>setPurchasing(null)}
+          onConfirm={handleAdminConfirm}
+        />
       )}
     </div>
   );
