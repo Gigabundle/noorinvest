@@ -523,6 +523,8 @@ const api = {
         status: p.status,
         receipt: p.receipt,
         rejectReason: p.reject_reason || '',
+        slot_id: p.slot_id || '',
+        seller: p.seller_name || '',
       }));
     } catch { return null; }
   },
@@ -1678,11 +1680,12 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
     const slot=slots.find(s=>s.slot_id===slotId);
     const payId=`pay-${Date.now()}`;
     const amount=slot?.sale_amount||amt;
-    const cycleName=slot?.cycle||INVESTOR_CYCLE.name;
+    const cycleName=slot?.cycle||slot?.cycle_name||INVESTOR_CYCLE.name;
     const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
 
+    // Lock slot (not sold yet — only sold after admin approves)
     setPurchased(p=>[...p,slotId]);
-    setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,sold:true}:s));
+    setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,lock:true}:s));
     setPays(ps=>[...ps,{
       id:payId,
       type:"slot_purchase",
@@ -1692,11 +1695,13 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
       cycle:cycleName,
       date:dateStr,
       status:"pending",
+      slot_id:slotId,
+      seller:slot?.seller||"",
       receipt:null,
       rejectReason:"",
     }]);
 
-    // Save payment to Supabase
+    // Save payment to Supabase with slot_id and seller details
     await api.submitPayment({
       id:payId,
       type:"slot_purchase",
@@ -1706,13 +1711,15 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
       cycle_name:cycleName,
       date:dateStr,
       status:"pending",
+      slot_id:slotId,
+      seller_name:slot?.seller||"",
       receipt:null,
       reject_reason:"",
     });
 
-    // Mark slot as sold in Supabase
+    // Lock slot in Supabase (not sold yet)
     try {
-      await supabase.from('market_slots').update({ sold:true }).eq('slot_id',slotId);
+      await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId);
     } catch {}
   };
 
@@ -3580,7 +3587,13 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
                 </button>
               )}
               <div className="flex items-start justify-between flex-1">
-                <div><p className="text-sm font-bold text-white">{p.investor}</p><p className="text-[10px] text-white/40 capitalize">{p.type.replace("_"," ")} · {p.cycle}</p><p className="text-[10px] text-white/30">{p.date}</p></div>
+                <div>
+                  <p className="text-sm font-bold text-white">{p.investor}</p>
+                  <p className="text-[10px] text-white/40 capitalize">{p.type.replace(/_/g," ")} · {p.cycle}</p>
+                  {p.type==="slot_purchase"&&p.seller&&<p className="text-[10px] text-amber-400 font-semibold mt-0.5">Seller: {p.seller}</p>}
+                  {p.type==="slot_purchase"&&p.slot_id&&<p className="text-[10px] text-white/30">Ref: {p.slot_id.slice(-8).toUpperCase()}</p>}
+                  <p className="text-[10px] text-white/30">{p.date}</p>
+                </div>
                 <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(p.amount)}</p><StatusPill status={p.status}/></div>
               </div>
             </div>
