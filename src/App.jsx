@@ -3654,7 +3654,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
                     <button onClick={()=>approveWd(w.id)} className="flex-1 py-2.5 bg-emerald-700/15 border border-emerald-700/30 text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-700/25">Approve & Pay</button>
                   </div>
                   <button onClick={()=>adminPayWd(w.id)} className="w-full py-2.5 bg-purple-700/15 border border-purple-700/30 text-purple-400 rounded-xl text-xs font-bold hover:bg-purple-700/25 flex items-center justify-center gap-1.5">
-                    <Send className="w-3.5 h-3.5"/>Admin-Initiated Payment (send & mark paid)
+                    <Send className="w-3.5 h-3.5"/>Mark as Paid (money sent manually)
                   </button>
                 </div>
               )}
