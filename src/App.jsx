@@ -2690,7 +2690,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   );
 };
 // ── Admin Panel Screens ──────────────────────────────────────────────────────
-const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
+const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
   // Refresh live cycle data from Supabase every time the dashboard opens
   useEffect(()=>{
     api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); }; });
@@ -2702,6 +2702,36 @@ const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
   const lastClosed=closedCycles.length?closedCycles.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b):null;
   const companyRetained=lastClosed?(()=>{const {companyPct}=actualSplit(lastClosed);return lastClosed.total_profit*(companyPct/100);})():0;
   const companyRetainedPct=lastClosed?actualSplit(lastClosed).companyPct:30;
+
+  // Company profit withdrawal state
+  const [showWithdraw,setShowWithdraw]=useState(false);
+  const [wdSubmitting,setWdSubmitting]=useState(false);
+  const [wdDone,setWdDone]=useState(false);
+
+  const handleCompanyWithdraw=async()=>{
+    if(wdSubmitting||wdDone||!lastClosed||companyRetained<=0) return;
+    setWdSubmitting(true);
+    const wdId=`wd-company-${Date.now()}`;
+    const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+    try {
+      await supabase.from('withdrawals').insert({
+        id:wdId,
+        investor_id:"company",
+        investor_name:"Gigabundle Ltd (Company)",
+        bank:"Moniepoint MFB",
+        account:"4650580467",
+        type:"profit_only",
+        amount:companyRetained,
+        capital:0,
+        date:dateStr,
+        status:"approved",
+        admin_note:`Company profit from ${lastClosed.name} — auto-approved`,
+      });
+      if(setWds) setWds(ws=>[...ws,{id:wdId,investor:"Gigabundle Ltd (Company)",investorId:"company",type:"profit_only",amount:companyRetained,date:dateStr,status:"approved",adminNote:"Company profit — auto-approved"}]);
+      setWdDone(true);
+    } catch(e){ console.error(e); }
+    setWdSubmitting(false);
+  };
   return (
     <div className="space-y-5 pb-24">
       <div><p className="text-xs text-white/40">Admin Panel</p><h1 className="text-xl font-black text-white">Dashboard</h1></div>
@@ -2712,6 +2742,41 @@ const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
         <StatCard label="Pending Actions"     value={pendingCount}      sub="Require attention" icon={CheckSquare} color="text-amber-400"   bg="bg-amber-700/10 border-amber-700/20"/>
       </div>
       {pendingCount>0&&<Banner type="warning" msg={`${pendingCount} pending items require your attention.`}/>}
+
+      {/* Company profit withdrawal */}
+      {lastClosed&&companyRetained>0&&(
+        <Card className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Company Profit — {lastClosed.name}</Label>
+              <p className="text-xl font-black text-purple-400 font-mono">{fmt(companyRetained)}</p>
+              <p className="text-[10px] text-white/40">{companyRetainedPct.toFixed(2)}% of net profit</p>
+            </div>
+            <Building2 className="w-8 h-8 text-purple-400/40"/>
+          </div>
+          {wdDone
+            ? <Banner type="success" msg="Company profit withdrawal recorded successfully."/>
+            : <>
+                <button onClick={()=>setShowWithdraw(s=>!s)} className="w-full py-2.5 bg-purple-700/15 border border-purple-700/30 text-purple-400 rounded-xl text-xs font-bold hover:bg-purple-700/25">
+                  {showWithdraw?"Cancel":"Withdraw Company Profit"}
+                </button>
+                {showWithdraw&&(
+                  <div className="space-y-3">
+                    <Card className="space-y-2">
+                      <Label>Payment Account</Label>
+                      {[["Bank","Moniepoint MFB"],["Account","4650580467"],["Name","Gigabundle Ltd"],["Amount",fmt(companyRetained)]].map(([l,v])=>(
+                        <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold">{v}</span></div>
+                      ))}
+                    </Card>
+                    <button onClick={handleCompanyWithdraw} disabled={wdSubmitting} className={`w-full py-2.5 font-bold rounded-xl text-sm ${wdSubmitting?"bg-white/10 text-white/40":"bg-purple-700 hover:bg-purple-600 text-white"}`}>
+                      {wdSubmitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Recording…</span>:"Confirm Withdrawal"}
+                    </button>
+                  </div>
+                )}
+              </>
+          }
+        </Card>
+      )}
       {openCycle&&(
         <Card className="space-y-3">
           <div className="flex items-start justify-between"><div><Label>Active Cycle</Label><p className="text-sm font-black text-white">{openCycle.name}</p><p className="text-xs text-white/40">{fmtDate(openCycle.start)} — {fmtDate(openCycle.end)}</p></div><Pill label={openCycle.accepting?"Accepting":"Closed to New"} color={openCycle.accepting?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-amber-700/20 border-amber-700/30 text-amber-400"}/></div>
@@ -4650,7 +4715,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         </div>
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
-        {view===VIEWS.DASH         &&<DashScreen nav={nav} cycles={cycles} setCycles={setCycles} pendingCount={pendingCount}/>}
+        {view===VIEWS.DASH         &&<DashScreen nav={nav} cycles={cycles} setCycles={setCycles} pendingCount={pendingCount} setWds={setWds}/>}
         {view===VIEWS.CYCLES       &&<CyclesScreen cycles={cycles} setCycles={setCycles} nav={nav} setEditTarget={setEditTarget} setAddTarget={setAddTarget}/>}
         {view===VIEWS.CREATE_CYCLE &&<CreateCycleScreen nav={nav} onSave={handleSaveCycle}/>}
         {view===VIEWS.EDIT_CYCLE   &&editTarget&&<EditCycleScreen cycle={editTarget} nav={nav} onSave={handleSaveCycle}/>}
