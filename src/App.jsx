@@ -1198,7 +1198,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
   );
 };
 
-const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending,myListing,setMyListing}) => {
+const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending,myListing,setMyListing}) => {
   const [step,setStep]=useState(1);
   const [type,setType]=useState("");
   const [capAmt,setCapAmt]=useState("");
@@ -1206,7 +1206,9 @@ const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds,withdrawalPend
   const [done,setDone]=useState(false);
   const [submitting,setSubmitting]=useState(false);
   const isClosed=INVESTOR_CYCLE.status==="closed";
-  const profit=investor.profit, capital=investor.capital;
+  const profit=investor.profit;
+  // Use rawCapital (not displayCapital) so capToList reflects actual capital
+  const capital=rawCapital!==undefined?rawCapital:investor.capital;
   const capParsed=parseI(capAmt);
   const profitDays=getDays(profit);
   const capDays=getDays(type==="profit_part"?capParsed:capital);
@@ -2592,6 +2594,10 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
                 lock:false,
               });
               setWithdrawalPending(true);
+            } else {
+              // No pending withdrawal — admin approved or rejected, clear state
+              setWithdrawalPending(false);
+              setMyListing(null);
             }
           }
         }
@@ -2656,7 +2662,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
         {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing} setMyListing={setMyListing}/>}
+        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} rawCapital={investor.capital} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing} setMyListing={setMyListing}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
         {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor} setWithdrawalPending={setWithdrawalPending}/>}
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
