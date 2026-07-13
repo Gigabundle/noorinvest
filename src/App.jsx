@@ -4387,17 +4387,44 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
     const payId=`pay-${Date.now()}`;
     const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
     try {
+      // Mark slot as sold
+      await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slot.slot_id);
+      setSlots(ss=>ss.map(s=>s.slot_id===slot.slot_id?{...s,sold:true,lock:true}:s));
+
+      // Deduct capital from seller immediately (admin self-approves)
+      if(slot.seller_investor_id){
+        const {data:seller}=await supabase.from('investors').select('capital,stake').eq('id',slot.seller_investor_id).single();
+        if(seller){
+          const cycPool=cycles.find(c=>c.status==="open")?.pool||100400000;
+          const newSellerCap=Math.max(0,Number(seller.capital||0)-Number(slot.capital||0));
+          const newSellerStake=Number(((newSellerCap/cycPool)*100).toFixed(3));
+          await supabase.from('investors').update({
+            capital:newSellerCap,
+            stake:newSellerStake,
+            profit_withdrawn:false,
+          }).eq('id',slot.seller_investor_id);
+          setInvestors(is=>is.map(i=>i.id===slot.seller_investor_id?{...i,capital:newSellerCap,stake:newSellerStake,profit_withdrawn:false}:i));
+        }
+      }
+
+      // Record the transaction as approved
       await supabase.from('payments').insert({
-        id:payId,type:"slot_purchase",
-        investor_name:"Gigabundle Ltd (Admin)",investor_id:"admin",
-        amount:slot.sale_amount,cycle_name:slot.cycle,
-        date:dateStr,status:"approved",receipt:null,reject_reason:"Admin direct purchase",
+        id:payId,
+        type:"slot_purchase",
+        investor_name:"Gigabundle Ltd (Company)",
+        investor_id:"company",
+        amount:slot.sale_amount,
+        cycle_name:slot.cycle||slot.cycle_name,
+        date:dateStr,
+        status:"approved",
+        slot_id:slot.slot_id,
+        reject_reason:"Admin/Company direct purchase",
       });
-      await supabase.from('market_slots').update({sold:true}).eq('slot_id',slot.slot_id);
-      setSlots(ss=>ss.map(s=>s.slot_id===slot.slot_id?{...s,sold:true}:s));
-      setPays(ps=>[...ps,{id:payId,type:"slot_purchase",investor:"Gigabundle Ltd (Admin)",amount:slot.sale_amount,cycle:slot.cycle,date:dateStr,status:"approved"}]);
+      setPays(ps=>[...ps,{id:payId,type:"slot_purchase",investor:"Gigabundle Ltd (Company)",amount:slot.sale_amount,cycle:slot.cycle||slot.cycle_name,date:dateStr,status:"approved"}]);
       setSelectedSlot(null);
-    } catch {}
+
+      alert(`Purchase complete. Seller's capital of ${new Intl.NumberFormat('en-NG',{style:'currency',currency:'NGN'}).format(slot.capital)} has been deducted. Pay seller to complete settlement.`);
+    } catch(e){ console.error('handleAdminBuy error:',e); }
   };
 
   return(
