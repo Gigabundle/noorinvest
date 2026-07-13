@@ -1652,7 +1652,7 @@ const ListSlotModal = ({onClose,onList,investor}) => {
   );
 };
 
-const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,setInvestor}) => {
+const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,setInvestor,setWithdrawalPending}) => {
   const savedTab = (() => { try { return localStorage.getItem('noorinvest_market_tab')||"buy"; } catch { return "buy"; } })();
   const [activeTab,setActiveTab]=useState(savedTab);
   const changeTab = t => { setActiveTab(t); try { localStorage.setItem('noorinvest_market_tab',t); } catch {} };
@@ -1750,7 +1750,21 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
       try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch {}
       // Also try by seller_investor_id as fallback
       try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',investor.id).eq('sold',false); } catch {}
-      // Force-refresh slots from Supabase
+      // Cancel any pending withdrawal with capital so startup useEffect doesn't restore myListing
+      try {
+        await supabase.from('withdrawals')
+          .update({status:'cancelled'})
+          .eq('investor_id',investor.id)
+          .eq('status','pending')
+          .gt('capital',0);
+      } catch {}
+      // Reset profit_withdrawn in Supabase
+      try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',investor.id); } catch {}
+      // Reset local state
+      if(setInvestor) setInvestor(prev=>({...prev,profit_withdrawn:false}));
+      // Reset withdrawalPending so withdrawal form shows again
+      if(setWithdrawalPending) setWithdrawalPending(false);
+      // Force refresh slots from Supabase
       api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
     }
     setMyListing(null);
@@ -2644,7 +2658,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
         {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing} setMyListing={setMyListing}/>}
         {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor}/>}
+        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor} setWithdrawalPending={setWithdrawalPending}/>}
         {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
         {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={displayInvestor}/>}
