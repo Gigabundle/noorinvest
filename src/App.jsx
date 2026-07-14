@@ -4851,14 +4851,16 @@ export default function NoorInvest() {
     [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} cycles={cycles} onSignOut={()=>nav(V.LAND)}/>,
   };
   return (
-    <div className="font-sans antialiased">
-      {showIdleWarning&&(view===V.IDASH||view===V.ADMIN)&&(
-        <div className="fixed inset-x-0 top-0 z-50 p-3 bg-amber-950/95 border-b border-amber-600 flex items-center justify-between gap-3">
-          <p className="text-xs text-amber-200 flex-1">You've been inactive. You'll be signed out in 2 minutes.</p>
-          <button onClick={()=>resetIdle.current?.()} className="text-xs font-bold text-amber-400 border border-amber-600 px-2.5 py-1 rounded-lg hover:bg-amber-900">Stay Signed In</button>
-        </div>
-      )}
-      {screens[view]||<Landing nav={nav}/>}
+    <div className="min-h-screen bg-slate-950 flex items-start justify-center">
+      <div className="w-full max-w-md min-h-screen relative">
+        {showIdleWarning&&(view===V.IDASH||view===V.ADMIN)&&(
+          <div className="fixed top-0 z-50 w-full max-w-md p-3 bg-amber-950/95 border-b border-amber-600 flex items-center justify-between gap-3">
+            <p className="text-xs text-amber-200 flex-1">You've been inactive. You'll be signed out in 2 minutes.</p>
+            <button onClick={()=>resetIdle.current?.()} className="text-xs font-bold text-amber-400 border border-amber-600 px-2.5 py-1 rounded-lg hover:bg-amber-900">Stay Signed In</button>
+          </div>
+        )}
+        {screens[view]||<Landing nav={nav}/>}
+      </div>
     </div>
   );
 }
