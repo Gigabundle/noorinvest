@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { supabase } from './supabaseClient.js';
-import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp, Download } from "lucide-react";
+import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // ── Admin Data + Helpers + UI Primitives ─────────────────────────────────────
@@ -51,10 +51,6 @@ const INIT_THRESHOLDS = [
   { id:2, min:1000001, max:2000000, days:7  },
   { id:3, min:2000001, max:null,    days:14 },
 ];
-// Live-updatable copy that investor-facing settlement calculations read from.
-// Updated whenever real threshold data loads from Supabase or admin saves changes.
-let liveThresholds = INIT_THRESHOLDS;
-const setLiveThresholds = (t) => { if (Array.isArray(t) && t.length) liveThresholds = t; };
 
 // Monthly performance PDF archive — seeded with the real historical report already covering Mar–May 2026
 const INIT_PDFS = [
@@ -91,19 +87,7 @@ const todayStr = () => new Date().toISOString().slice(0,10);
 const fmtAmt  = v  => { const d=String(v).replace(/[^\d]/g,""); return d?Number(d).toLocaleString("en-NG"):""; };
 const parseAmt= s  => Number(String(s).replace(/,/g,""))||0;
 const netCap  = inv=> Math.max(0,inv.capital-inv.approved_withdrawals);
-// Dynamic profit split based on actual capital positions
-// Company capital = pool * (company_stake_pct / investor_split) — original agreed terms
 const companyCapital = c => c.investor_split>0 ? c.pool*(c.company_stake_pct/c.investor_split) : 0;
-// Actual split % derived from real capital positions (changes as slots are acquired)
-const actualSplit = c => {
-  const cc = companyCapital(c);
-  const total = (c.pool||0) + cc;
-  if(total===0) return {investorPct: c.investor_split||70, companyPct: c.company_stake_pct||30};
-  return {
-    investorPct: Number(((c.pool/total)*100).toFixed(4)),
-    companyPct: Number(((cc/total)*100).toFixed(4)),
-  };
-};
 const addAudit = (inv, action) => ({...inv, auditLog:[...(inv.auditLog||[]), {date:new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}), action}]});
 
 // Pro-Rata engine. Assumes full-cycle participation since per-investor entry-date tracking
@@ -122,17 +106,9 @@ const proRataVariance = (rows, totalProfit) => {
 // CSV parsing — expects header row then "investor_id,profit" rows
 const parseCSV = text => {
   const lines = String(text).trim().split(/\r?\n/);
-  if(lines.length<2) return [];
-  // Read headers to find correct columns by name
-  const headers = lines[0].split(",").map(h=>h.trim().toLowerCase());
-  const idIdx = headers.findIndex(h=>h==="investor_id"||h==="id");
-  const profitIdx = headers.findIndex(h=>h==="profit"||h==="profit_allocated"||h==="june_profit");
-  // Fall back to positional: col 0 = id, last col = profit
-  const useIdIdx = idIdx>=0 ? idIdx : 0;
-  const useProfitIdx = profitIdx>=0 ? profitIdx : headers.length-1;
   return lines.slice(1).map(line=>{
     const parts = line.split(",");
-    return { id:(parts[useIdIdx]||"").trim(), profitRaw:(parts[useProfitIdx]||"").trim() };
+    return { id:(parts[0]||"").trim(), profitRaw:(parts[1]||"").trim() };
   }).filter(r=>r.id);
 };
 const buildTemplateCSV = members => {
@@ -169,7 +145,7 @@ const TF = ({label,value,onChange,type="text",error,hint,disabled}) => (
 );
 
 // ── VIEWS ─────────────────────────────────────────────────────────────────────
-const VIEWS={DASH:"dash",CYCLES:"cycles",CREATE_CYCLE:"create",EDIT_CYCLE:"edit",ADD_MEMBERS:"addmem",MEMBERS:"members",APPROVALS:"approvals",SETTINGS:"settings",PROFIT_CSV:"profitcsv",PERFORMANCE_PDF:"perfpdf",THRESHOLDS:"thresholds",TNC:"tnc",ANALYTICS:"analytics",MARKET:"adminmarket"};
+const VIEWS={DASH:"dash",CYCLES:"cycles",CREATE_CYCLE:"create",EDIT_CYCLE:"edit",ADD_MEMBERS:"addmem",MEMBERS:"members",APPROVALS:"approvals",SETTINGS:"settings",PROFIT_CSV:"profitcsv",PERFORMANCE_PDF:"perfpdf",THRESHOLDS:"thresholds",TNC:"tnc",ANALYTICS:"analytics"};
 
 // ── Banner (merged: all 4 types, onClose, onAction) ──────────────────────────
 const Banner = ({type,msg,onClose,onAction,actionLabel}) => {
@@ -238,23 +214,22 @@ const api = {
 
   createAccount: async (phone, email, pw) => {
     try {
+      // Check email not already taken
       const { data: existing } = await supabase
         .from('users')
         .select('id')
         .eq('email', email)
         .maybeSingle();
       if (existing) return { ok: false, err: "EMAIL_TAKEN" };
-      // Hash password server-side with bcrypt
-      const { data: hashed } = await supabase.rpc('hash_password', { plaintext: pw });
-      if (!hashed) return { ok: false, err: "UPDATE_FAILED" };
+      // Hash password using btoa (simple encoding for now, bcrypt needs backend)
       const { error } = await supabase
         .from('users')
-        .update({ email, password_hash: hashed, has_account: true })
+        .update({ email, password_hash: btoa(pw), has_account: true })
         .eq('phone', phone);
       if (error) return { ok: false, err: "UPDATE_FAILED" };
-      await supabase.from('investors').update({ email }).eq('phone', phone);
       return { ok: true };
     } catch {
+      // fallback to in-memory
       const i = store.findIndex(u => u.phone === phone);
       if (i < 0) return { ok: false, err: "NOT_FOUND" };
       if ([...store, ...newUsers].some(u => u.email === email)) return { ok: false, err: "EMAIL_TAKEN" };
@@ -271,12 +246,8 @@ const api = {
         .eq('email', email)
         .single();
       if (error || !data) return { ok: false };
-      // Server-side bcrypt verification
-      const { data: valid } = await supabase.rpc('verify_password', {
-        plaintext: pw,
-        hash: data.password_hash
-      });
-      if (!valid) return { ok: false };
+      if (data.password_hash !== btoa(pw)) return { ok: false };
+      // Get investor record
       const { data: inv } = await supabase
         .from('investors')
         .select('id')
@@ -298,19 +269,10 @@ const api = {
         .eq('role', 'admin')
         .single();
       if (error || !data) return { ok: false };
-      // Server-side bcrypt verification
-      const { data: valid } = await supabase.rpc('verify_password', {
-        plaintext: pw,
-        hash: data.password_hash
-      });
-      if (!valid) return { ok: false };
+      if (data.password_hash !== btoa(pw)) return { ok: false };
       return { ok: true, name: data.name };
-    } catch (e) {
-      // SECURITY: fail closed. Never fall back to client-side credentials —
-      // the bundle is public, so any hardcoded password here is public too,
-      // and an attacker can force this catch by blocking the Supabase request.
-      console.error('adminLogin failed:', e);
-      return { ok: false, err: "SERVICE_UNAVAILABLE" };
+    } catch {
+      return email === "admin@noorinvest.ng" && pw === "Admin@2025" ? { ok: true, name: "Ibrahim Usman" } : { ok: false };
     }
   },
 
@@ -330,9 +292,6 @@ const api = {
         .eq('phone', data.phone)
         .maybeSingle();
       if (existingPhone) return { ok: false, err: "PHONE_TAKEN" };
-      // Hash password server-side with bcrypt
-      const { data: hashed } = await supabase.rpc('hash_password', { plaintext: data.password });
-      if (!hashed) return { ok: false, err: "REGISTER_FAILED" };
       // Insert new user
       const { error } = await supabase
         .from('users')
@@ -340,38 +299,11 @@ const api = {
           phone: data.phone,
           name: data.fullName || data.name,
           email: data.email,
-          password_hash: hashed,
+          password_hash: btoa(data.password),
           has_account: true,
           role: 'investor',
         });
       if (error) return { ok: false, err: "REGISTER_FAILED" };
-      // Create matching investor record so the investor portal has real data
-      const newInvestorId = `u-${Date.now()}`;
-      const { error: invError } = await supabase
-        .from('investors')
-        .insert({
-          id: newInvestorId,
-          name: data.fullName || data.name,
-          phone: data.phone,
-          email: data.email,
-          capital: 0,
-          stake: 0,
-          profit: 0,
-          approved_withdrawals: 0,
-          profit_withdrawn: false,
-          investment_date: new Date().toISOString().slice(0,10),
-          status: 'active',
-          bank: data.bankName || '',
-          account: data.bankAccountNo || '',
-          account_number: data.bankAccountNo || '',
-          account_name: data.bankAccountName || data.fullName || data.name,
-          address: data.address || '',
-          nok_name: data.nokName || '',
-          nok_phone: data.nokPhone || '',
-          nok_rel: data.nokRelationship || '',
-          nok_addr: data.nokAddress || '',
-        });
-      if (invError) return { ok: false, err: "REGISTER_FAILED" };
       return { ok: true };
     } catch {
       if ([...store, ...newUsers].some(u => u.email === data.email)) return { ok: false, err: "EMAIL_TAKEN" };
@@ -450,194 +382,10 @@ const api = {
     } catch { return []; }
   },
 
-  getCycles: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cycles')
-        .select('*')
-        .order('created_at', { ascending: true });
-      if (error || !data) return null;
-      return data.map(c => ({
-        id: c.id,
-        name: c.name,
-        start: c.start_date,
-        end: c.end_date,
-        pool: Number(c.pool),
-        target_pool: Number(c.target_pool),
-        company_stake_pct: Number(c.company_stake_pct),
-        investor_split: Number(c.investor_split),
-        rollover_days: c.rollover_days,
-        profit_rate: c.profit_rate ? Number(c.profit_rate) : null,
-        total_profit: c.total_profit ? Number(c.total_profit) : null,
-        status: c.status,
-        accepting: c.accepting,
-        investors: c.investors_count,
-        member_ids: [],
-      }));
-    } catch { return null; }
-  },
-
-  getAllInvestors: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('investors')
-        .select('*')
-        .order('name', { ascending: true });
-      if (error || !data) return null;
-      return data.map(i => ({
-        id: i.id,
-        name: i.name,
-        phone: i.phone,
-        email: i.email,
-        capital: Number(i.capital),
-        stake: Number(i.stake),
-        profit: Number(i.profit),
-        approved_withdrawals: Number(i.approved_withdrawals),
-        profit_withdrawn: i.profit_withdrawn,
-        investment_date: i.investment_date,
-        status: i.status,
-        bank: i.bank,
-        account: i.account,
-        account_number: i.account_number || i.account,
-        account_name: i.account_name || i.name,
-        address: i.address,
-        nokName: i.nok_name,
-        nokPhone: i.nok_phone,
-        nokRel: i.nok_rel,
-        nokAddr: i.nok_addr,
-      }));
-    } catch { return null; }
-  },
-
-  getPayments: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('payments')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error || !data) return null;
-      return data.map(p => ({
-        id: p.id,
-        type: p.type,
-        investor: p.investor_name,
-        investorId: p.investor_id,
-        amount: Number(p.amount),
-        cycle: p.cycle_name,
-        date: p.date,
-        status: p.status,
-        receipt: p.receipt,
-        rejectReason: p.reject_reason || '',
-        slot_id: p.slot_id || '',
-        seller: p.seller_name || '',
-      }));
-    } catch { return null; }
-  },
-
-  getWithdrawals: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error || !data) return null;
-      return data.map(w => ({
-        id: w.id,
-        investorId: w.investor_id,
-        investor: w.investor_name,
-        bank: w.bank,
-        account: w.account,
-        type: w.type,
-        amount: Number(w.amount),
-        capital: Number(w.capital),
-        date: w.date,
-        status: w.status,
-        adminNote: w.admin_note || '',
-      }));
-    } catch { return null; }
-  },
-
-  getThresholds: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('thresholds')
-        .select('*')
-        .order('min_amount', { ascending: true });
-      if (error || !data) return null;
-      return data.map(t => ({
-        id: t.id,
-        min: Number(t.min_amount),
-        max: t.max_amount===null ? null : Number(t.max_amount),
-        days: t.settlement_days,
-      }));
-    } catch { return null; }
-  },
-
-  getTncDraft: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tnc_versions')
-        .select('*')
-        .eq('is_draft', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error || !data) return null;
-      return {
-        _dbId: data.id,
-        pendingVersion: data.version,
-        shariahReviewed: data.shariah_reviewed,
-        legalReviewed: data.legal_reviewed,
-        clauses: data.clauses,
-      };
-    } catch { return null; }
-  },
-
-  getTncHistory: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('tnc_versions')
-        .select('*')
-        .eq('is_draft', false)
-        .order('created_at', { ascending: true });
-      if (error || !data) return null;
-      return data.map(v => ({
-        version: v.version,
-        publishedDate: v.published_date,
-        clauses: v.clauses,
-        shariahReviewed: v.shariah_reviewed,
-        legalReviewed: v.legal_reviewed,
-      }));
-    } catch { return null; }
-  },
-
   markNotificationsRead: async (investorId) => {
     try {
       await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
     } catch {}
-  },
-
-  getMarketSlots: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('market_slots')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error || !data) return null;
-      return data.map(s => ({
-        slot_id: s.slot_id,
-        seller: s.seller,
-        seller_investor_id: s.seller_investor_id,
-        cycle: s.cycle_name,
-        capital: Number(s.capital),
-        stake_pct: Number(s.stake_pct),
-        sale_amount: Number(s.sale_amount),
-        days_in_fund: s.days_in_fund,
-        expected_rate: Number(s.expected_rate),
-        lock: s.lock,
-        sold: s.sold,
-        is_company: s.is_company,
-      }));
-    } catch { return null; }
   },
 };
 
@@ -802,7 +550,7 @@ const Landing = ({nav}) => (
       <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-blue-700/20 border border-blue-700/30 flex items-center justify-center"><Star className="w-4 h-4 text-blue-400"/></div><span className="text-white font-black text-lg">Noor<span className="text-blue-400">Invest</span></span></div>
       <div className="flex items-center gap-3">
         <button onClick={()=>nav(V.ADMIN_LOGIN)} className="text-xs text-white/40 hover:text-white/70 font-medium">Admin</button>
-        <button onClick={()=>nav(V.LOGIN)} className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors">Login</button>
+        <button onClick={()=>nav(V.PHONE)} className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors">Sign In</button>
       </div>
     </nav>
 
@@ -826,9 +574,8 @@ const Landing = ({nav}) => (
       </div>
 
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        <button onClick={()=>nav(V.LOGIN)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all">Login <ArrowRight className="w-4 h-4"/></button>
-        <button onClick={()=>nav(V.REG)} className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-xl text-sm transition-all">New Investor — Register</button>
-        <button onClick={()=>nav(V.PHONE)} className="w-full py-3 text-xs text-white/40 hover:text-white/70 transition-all">Existing investor? Recover your account →</button>
+        <button onClick={()=>nav(V.PHONE)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all">Existing Investor <ArrowRight className="w-4 h-4"/></button>
+        <button onClick={()=>nav(V.REG)}   className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold rounded-xl text-sm transition-all">New Investor — Register</button>
       </div>
     </div>
 
@@ -902,7 +649,6 @@ const LoginScreen = ({nav,data}) => {
       </div>
       <Btn onClick={go} loading={loading}>Sign In Securely</Btn>
       <p className="text-center text-xs text-white/30">New? <button onClick={()=>nav(V.REG)} className="text-blue-400 font-semibold">Register here</button></p>
-      <p className="text-center text-xs text-white/30">First time signing in? <button onClick={()=>nav(V.PHONE)} className="text-blue-400 font-semibold">Find your account</button></p>
     </Shell>
   );
 };
@@ -970,7 +716,7 @@ const DoneScreen = ({nav,data}) => (
 const AdminScreen = ({nav}) => {
   const [email,setEmail]=useState(""); const [pw,setPw]=useState("");
   const [loading,setLoading]=useState(false); const [alert,setAlert]=useState(null); const [errs,setErrs]=useState({});
-  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email";if(!pw.length)e.pw="Password required";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.adminLogin(email,pw);setLoading(false);if(r.ok)setTimeout(()=>nav(V.ADMIN,null,r),600);else setAlert({type:"error",msg:r.err==="SERVICE_UNAVAILABLE"?"Cannot reach the server. Check your connection and try again.":"Invalid admin credentials."});};
+  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email";if(!pw.length)e.pw="Password required";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.adminLogin(email,pw);setLoading(false);if(r.ok)setTimeout(()=>nav(V.ADMIN,null,r),600);else setAlert({type:"error",msg:"Invalid admin credentials."});};
   return(
     <Shell nav={nav} badge="Admin Portal" title="Admin Sign In" sub="Restricted access. Authorised personnel only.">
       <button onClick={()=>nav(V.LAND)} className="text-xs text-white/30 hover:text-white/60">← Back</button>
@@ -982,36 +728,11 @@ const AdminScreen = ({nav}) => {
 };
 
 // ── Investor Portal Data & Helpers ────────────────────────────────────────────
-const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement", REPORTS:"inv_reports", REQUESTS:"inv_requests" };
+const IV = { HOME:"inv_home", WITHDRAW:"inv_withdraw", HISTORY:"inv_history", MARKET:"inv_market", INVEST:"inv_invest", PROFILE:"inv_profile", STATEMENT:"inv_statement" };
 
-let INVESTOR_CYCLE = CYCLES_DATA.find(c=>c.status==="open") || CYCLES_DATA.find(c=>c.status==="closed") || CYCLES_DATA[0];
-let INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
-let INVESTOR_FUTURE_CYCLE = { id:"cyc-sep-nov-2026", name:"Cycle Sep–Nov 2026", start:"2026-09-01", end:"2026-11-30", target_pool:200000000, current_pool:200000000, min_investment:500000, max_investment:25000000, expected_rate:5.0, slots_left:0, is_full:true };
-
-// Updates investor-facing cycle variables whenever live data loads from Supabase.
-// Called from root useEffect and triggers a re-render of the whole tree.
-const updateInvestorCycles = (liveCycles) => {
-  if (!liveCycles?.length) return;
-  const closed = liveCycles.filter(c=>c.status==="closed");
-  const lastClosed = closed.length ? closed.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b) : liveCycles[0];
-  const openCyc = liveCycles.find(c=>c.status==="open") || liveCycles[liveCycles.length-1];
-  // Current cycle = open cycle if running, otherwise last closed
-  INVESTOR_CYCLE = openCyc || lastClosed;
-  INVESTOR_NEXT_CYCLE = {
-    ...openCyc,
-    current_pool: openCyc.pool || 0,
-    min_investment: 100000,
-    max_investment: 20000000,
-    expected_rate: openCyc.profit_rate || null,
-    slots_left: 18,
-    is_full: false,
-  };
-  const future = liveCycles.filter(c=>c.status==="upcoming"||c.status==="draft");
-  INVESTOR_FUTURE_CYCLE = future.length ? {...future[0], current_pool:future[0].pool||0, min_investment:500000, max_investment:25000000, slots_left:0, is_full:true} : INVESTOR_FUTURE_CYCLE;
-};
-
-// DAYS_LEFT computed as a function so it always reflects current INVESTOR_NEXT_CYCLE
-const getDaysLeft = () => Math.max(0,Math.ceil((new Date(INVESTOR_NEXT_CYCLE.end||"2026-08-31") - new Date())/(1000*60*60*24)));
+const INVESTOR_CYCLE        = CYCLES_DATA.find(c=>c.status==="closed")||CYCLES_DATA[0];
+const INVESTOR_NEXT_CYCLE   = { ...(CYCLES_DATA.find(c=>c.status==="open")||CYCLES_DATA[1]), current_pool:67200000, min_investment:100000, max_investment:20000000, expected_rate:4.5, slots_left:18, is_full:false };
+const INVESTOR_FUTURE_CYCLE = { id:"cyc-sep-nov-2026", name:"Cycle Sep–Nov 2026", start:"2026-09-01", end:"2026-11-30", target_pool:200000000, current_pool:200000000, min_investment:500000, max_investment:25000000, expected_rate:5.0, slots_left:0, is_full:true };
 
 const PAYMENT_ACCOUNT = { bank:"Moniepoint MFB", account_number:"4650580467", account_name:"Gigabundle Ltd - Gigabundle Investment" };
 
@@ -1033,7 +754,10 @@ const INIT_MARKET_SLOTS = [
 const INIT_MY_LISTING = null;
 const INIT_WAITING    = null;
 
-const getDays        = amt => { const b=liveThresholds.find(t=>t.max===null||amt<=t.max); return b?b.days:14; };
+// Date helpers — Finding 5 fix: real device date, not hardcoded
+const CYCLE_END_DATE = new Date(INVESTOR_NEXT_CYCLE.end||"2026-08-31");
+const DAYS_LEFT      = Math.max(0,Math.ceil((CYCLE_END_DATE - new Date())/(1000*60*60*24)));
+const getDays        = amt => { const b=INIT_THRESHOLDS.find(t=>t.max===null||amt<=t.max); return b?b.days:14; };
 const addDays        = n   => { const d=new Date(); d.setDate(d.getDate()+n); return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); };
 const getGreeting    = ()  => { const h=new Date().getHours(); return h<12?"Good morning":h<17?"Good afternoon":"Good evening"; };
 const fmtI   = raw => { const d=String(raw).replace(/[^\d]/g,""); return d?Number(d).toLocaleString("en-NG"):""; };
@@ -1107,18 +831,15 @@ const NotifPanel = ({onClose,onMarkRead,notifs}) => (
   </div>
 );
 
-const HomeScreen = ({nav,investor,cycles}) => {
-  // Derive current cycle from React state so re-renders pick up live data
-  const currentCycle = cycles?.find(c=>c.status==="open") || cycles?.find(c=>c.status==="closed") || INVESTOR_CYCLE;
-  const cycleName = currentCycle?.name || INVESTOR_CYCLE.name;
+const HomeScreen = ({nav,investor}) => {
   const profitReady = INVESTOR_CYCLE.status==="closed" && !investor.profit_withdrawn;
   return (
     <div className="space-y-5 pb-24">
       <div className="flex items-start justify-between">
-        <div><p className="text-xs text-white/40 font-medium">{getGreeting()},</p><h1 className="text-xl font-black text-white">{investor.name}</h1></div>
+        <div><p className="text-xs text-white/40 font-medium">{getGreeting()},</p><h1 className="text-xl font-black text-white">{investor.name.split(" ")[0]}</h1></div>
       </div>
 
-      {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${cycleName} is ready to withdraw.`}/>}
+      {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${INVESTOR_CYCLE.name} is ready to withdraw.`}/>}
 
       {/* Capital card */}
       <div className="rounded-2xl p-5 relative overflow-hidden" style={{background:"linear-gradient(135deg,#1a3a6b 0%,#1D4ED8 100%)"}}>
@@ -1128,7 +849,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
           <p className="text-xs text-blue-200/70 font-bold uppercase tracking-widest">Capital Deployed</p>
           <p className="text-3xl font-black text-white font-mono mt-1">{fmt(investor.capital)}</p>
           <div className="flex items-center justify-between mt-3">
-            <div><p className="text-[10px] text-blue-200/60 uppercase tracking-widest">Cycle</p><p className="text-xs text-white font-semibold">{cycleName}</p></div>
+            <div><p className="text-[10px] text-blue-200/60 uppercase tracking-widest">Cycle</p><p className="text-xs text-white font-semibold">{INVESTOR_CYCLE.name}</p></div>
             <div className="text-right"><p className="text-[10px] text-blue-200/60 uppercase tracking-widest">Invested</p><p className="text-xs text-white font-semibold">{fmtDate(investor.investment_date)}</p></div>
           </div>
         </div>
@@ -1137,17 +858,16 @@ const HomeScreen = ({nav,investor,cycles}) => {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <Card className="text-center"><Label>Profit Share</Label><SmallVal color="text-emerald-400">{fmt(investor.profit)}</SmallVal></Card>
-        <Card className="text-center"><Label>Last Rate</Label><SmallVal color="text-blue-400">{currentCycle?.profit_rate?`${currentCycle.profit_rate}%`:"—"}</SmallVal></Card>
-        <Card className="text-center"><Label>Your Stake</Label><SmallVal>{investor.stake?`${investor.stake}%`:"—"}</SmallVal></Card>
+        <Card className="text-center"><Label>Profit Rate</Label><SmallVal color="text-blue-400">{INVESTOR_CYCLE.profit_rate}%</SmallVal></Card>
+        <Card className="text-center"><Label>Your Stake</Label><SmallVal>{investor.stake}%</SmallVal></Card>
       </div>
-      <p className="text-[10px] text-white/25 text-center -mt-2">Past profit rate shown. Not a guarantee of future returns.</p>
 
       {/* Countdown */}
       <Card>
         <div className="flex items-center justify-between">
-          <div><Label>Next Cycle — {INVESTOR_NEXT_CYCLE.name}</Label><p className="text-base font-black text-white">{getDaysLeft()} days remaining</p><p className="text-xs text-white/40 mt-0.5">Ends {fmtDate(INVESTOR_NEXT_CYCLE.end)}</p></div>
+          <div><Label>Next Cycle — {INVESTOR_NEXT_CYCLE.name}</Label><p className="text-base font-black text-white">{DAYS_LEFT} days remaining</p><p className="text-xs text-white/40 mt-0.5">Ends {fmtDate(INVESTOR_NEXT_CYCLE.end)}</p></div>
           <div className="w-14 h-14 rounded-full border-2 border-blue-600 flex items-center justify-center flex-shrink-0">
-            <div className="text-center"><p className="text-sm font-black text-blue-400 leading-none">{getDaysLeft()}</p><p className="text-[8px] text-white/40 font-bold uppercase">days</p></div>
+            <div className="text-center"><p className="text-sm font-black text-blue-400 leading-none">{DAYS_LEFT}</p><p className="text-[8px] text-white/40 font-bold uppercase">days</p></div>
           </div>
         </div>
         <div className="mt-3">
@@ -1166,7 +886,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
             {icon:PlusCircle,   label:"Add to\nInvest",color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.INVEST},
             {icon:BarChart2,    label:"History",       color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.HISTORY},
             {icon:ArrowRightLeft,label:"Market",        color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.MARKET},
-            {icon:Bell,         label:"Requests",      color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.REQUESTS},
+            {icon:FileText,     label:"Statement",     color:"bg-blue-700/20 border-blue-700/30 text-blue-400",    view:IV.STATEMENT},
           ].map(({icon:Icon,label,color,view},i)=>(
             <button key={i} onClick={()=>view&&nav(view)} className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all hover:scale-105 active:scale-95 ${color}`}>
               <Icon className="w-5 h-5"/><span className="text-[9px] font-bold uppercase tracking-wide leading-tight text-center whitespace-pre-line">{label}</span>
@@ -1174,13 +894,6 @@ const HomeScreen = ({nav,investor,cycles}) => {
           ))}
         </div>
       </div>
-
-      {/* Performance Reports card */}
-      <button onClick={()=>nav(IV.REPORTS)} className="w-full flex items-center gap-3 p-4 bg-blue-700/10 border border-blue-700/30 rounded-2xl hover:bg-blue-700/20 transition-all text-left">
-        <div className="w-10 h-10 rounded-xl bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><FileText className="w-5 h-5 text-blue-400"/></div>
-        <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white">Performance Reports</p><p className="text-[11px] text-white/40">View and download monthly profit reports</p></div>
-        <ArrowRight className="w-4 h-4 text-white/30 flex-shrink-0"/>
-      </button>
 
       {/* Recent activity */}
       <div>
@@ -1194,7 +907,7 @@ const HomeScreen = ({nav,investor,cycles}) => {
               <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${tx.type==="out"?"bg-emerald-500/15 border border-emerald-500/20":"bg-blue-700/20 border border-blue-700/30"}`}>
                 {tx.type==="out"?<ArrowUpRight className="w-4 h-4 text-emerald-400"/>:<ArrowDownLeft className="w-4 h-4 text-blue-400"/>}
               </div>
-              <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white">{tx.label}</p><p className="text-[10px] text-white/40">{cycleName} · {tx.date}</p></div>
+              <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-white">{tx.label}</p><p className="text-[10px] text-white/40">{INVESTOR_CYCLE.name} · {tx.date}</p></div>
               <p className={`text-sm font-bold flex-shrink-0 ${tx.type==="out"?"text-emerald-400":"text-white"}`}>{tx.type==="out"?"+":""}{fmt(tx.amount)}</p>
             </div>
           ))}
@@ -1204,17 +917,14 @@ const HomeScreen = ({nav,investor,cycles}) => {
   );
 };
 
-const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,withdrawalPending,setWithdrawalPending,myListing,setMyListing}) => {
+const WithdrawScreen = ({nav,investor,setInvestor,setSlots,setWds}) => {
   const [step,setStep]=useState(1);
   const [type,setType]=useState("");
   const [capAmt,setCapAmt]=useState("");
   const [errs,setErrs]=useState({});
   const [done,setDone]=useState(false);
-  const [submitting,setSubmitting]=useState(false);
   const isClosed=INVESTOR_CYCLE.status==="closed";
-  const profit=investor.profit;
-  // Use rawCapital (not displayCapital) so capToList reflects actual capital
-  const capital=rawCapital!==undefined?rawCapital:investor.capital;
+  const profit=investor.profit, capital=investor.capital;
   const capParsed=parseI(capAmt);
   const profitDays=getDays(profit);
   const capDays=getDays(type==="profit_part"?capParsed:capital);
@@ -1222,15 +932,10 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
   const profitAmt=type!=="capital_mid"?profit:0;
   const capToList=type==="profit_part"?capParsed:["profit_full","capital_mid"].includes(type)?capital:0;
 
-  const profitAlreadyRequested=investor.profit_withdrawn;
-
   const opts=isClosed
-    ?[
-      ...(!profitAlreadyRequested?[{id:"profit_only", label:"Withdraw profit share only",        sub:`Receive ${fmt(profit)}. Your ${fmt(capital)} stays invested.`}]:[]),
-      ...(!profitAlreadyRequested?[{id:"profit_part", label:"Withdraw profit + part of capital", sub:`Receive ${fmt(profit)} and list a chosen portion for sale.`}]:[]),
-      ...(!profitAlreadyRequested?[{id:"profit_full", label:"Withdraw profit + all capital",     sub:`Receive ${fmt(profit)} and list your full ${fmt(capital)} on the market.`}]:[]),
-      ...(profitAlreadyRequested&&capital>0?[{id:"profit_full", label:"List my capital for sale", sub:`Profit withdrawal already submitted. List your ${fmt(capital)} on the secondary market.`}]:[]),
-    ]
+    ?[{id:"profit_only", label:"Withdraw profit share only",        sub:`Receive ${fmt(profit)}. Your ${fmt(capital)} stays invested.`},
+      {id:"profit_part", label:"Withdraw profit + part of capital", sub:`Receive ${fmt(profit)} and list a chosen portion for sale.`},
+      {id:"profit_full", label:"Withdraw profit + all capital",     sub:`Receive ${fmt(profit)} and list your full ${fmt(capital)} on the market.`}]
     :[{id:"capital_mid", label:"List my investment for sale",       sub:"Round still running. List your slot. Profit for days held pays when the cycle ends."}];
 
   const next=()=>{
@@ -1240,32 +945,11 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
     setErrs(e); if(Object.keys(e).length)return; setStep(2);
   };
 
-  // Issue 3: Block withdrawal if investor has no funds at all
-  if(!investor.capital && !investor.profit) return(
-    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
-      <div className="w-16 h-16 rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center"><Wallet className="w-8 h-8 text-white/30"/></div>
-      <div><h2 className="text-xl font-black text-white">No Funds Available</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">You don't have any capital or profit to withdraw yet. Join a cycle to get started.</p></div>
-      <button onClick={()=>nav(IV.INVEST)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">View Available Cycles <ArrowRight className="w-4 h-4"/></button>
-      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60">Back to Home</button>
-    </div>
-  );
-
-  // Show "already submitted" whenever profit_withdrawn is true OR withdrawal was just submitted this session
-  if(investor.profit_withdrawn || withdrawalPending) return(
+  if(investor.profit_withdrawn) return(
     <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
       <div className="w-16 h-16 rounded-full bg-blue-700/10 border-2 border-blue-700/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-blue-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Already Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your withdrawal request is pending admin approval. You will be notified once it is processed.</p></div>
       <button onClick={()=>nav(IV.HOME)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Back to Home</button>
-    </div>
-  );
-
-  // Show active listing notice if investor already has a slot on the market
-  if(myListing&&!myListing.sold&&!myListing.lock) return(
-    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
-      <div className="w-16 h-16 rounded-full bg-purple-700/10 border-2 border-purple-700/30 flex items-center justify-center"><ArrowRightLeft className="w-8 h-8 text-purple-400"/></div>
-      <div><h2 className="text-xl font-black text-white">Active Market Listing</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">You have {fmt(myListing.capital)} listed on the secondary market. Withdraw that listing first before making a new request.</p></div>
-      <button onClick={()=>nav(IV.MARKET)} className="w-full py-3.5 bg-purple-700 hover:bg-purple-600 text-white font-bold rounded-xl text-sm">View My Listing</button>
-      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60">Back to Home</button>
     </div>
   );
 
@@ -1274,21 +958,15 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
       <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-10 h-10 text-emerald-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Submitted</h2>
         <p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">
-          {profitAmt>0&&`Profit of ${fmt(profitAmt)} submitted for admin approval. `}
+          {profitAmt>0&&`Profit of ${fmt(profitAmt)} sent for admin approval — paid within ${profitDays} days. `}
           {capToList>0&&`${fmt(capToList)} automatically listed on the secondary market.`}
         </p>
       </div>
-      <Card className="w-full text-left space-y-3">
-        <Label>Request Summary</Label>
-        {[
-          ...(profitAmt>0?[["Profit to receive",fmt(profitAmt)],["Settlement window",`${profitDays} days`]]:[] ),
-          ...(capToList>0?[["Capital listed",fmt(capToList)]]:[] ),
-          ["Expected by",addDays(maxDays)],
-          ["Date",new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})],
-          ["Status","Pending Admin Approval"],
-        ].map(([l,v])=>(
-          <div key={l} className="flex justify-between text-sm gap-2"><span className="text-white/40 flex-shrink-0">{l}</span><span className={`font-semibold text-right ${l==="Status"?"text-amber-400":l.includes("receive")||l.includes("listed")?"text-emerald-400":"text-white"}`}>{v}</span></div>
-        ))}
+      <Card className="w-full text-left space-y-2">
+        <Label>Settlement Timeline</Label>
+        {profitAmt>0&&<div className="flex justify-between text-sm"><span className="text-white/40">Profit payment</span><span className="text-emerald-400 font-bold">Within {profitDays} days</span></div>}
+        {capToList>0&&<div className="flex justify-between text-sm"><span className="text-white/40">Capital listed</span><span className="text-blue-400 font-bold">Immediately</span></div>}
+        <div className="flex justify-between text-sm"><span className="text-white/40">Expected by</span><span className="text-white font-bold">{addDays(maxDays)}</span></div>
       </Card>
       <button onClick={()=>nav(IV.HOME)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Back to Home</button>
     </div>
@@ -1299,7 +977,6 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
       <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
       <h2 className="text-xl font-black text-white">Withdraw Funds</h2>
       {!isClosed&&<Banner type="warning" msg="This round is still running. You can sell your capital slot now. Your profit will be calculated and paid when the round ends."/>}
-      {isClosed&&profitAlreadyRequested&&<Banner type="info" msg="Your profit withdrawal is already submitted and pending admin approval. You can still list your capital on the secondary market."/>}
       {isClosed&&(
         <div className="grid grid-cols-2 gap-3">
           <Card className="text-center"><Label>Profit Ready</Label><SmallVal color="text-emerald-400">{fmt(profit)}</SmallVal></Card>
@@ -1344,62 +1021,36 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
           {capToList>0&&<Banner type="info" msg="Your capital will be automatically listed on the secondary market the moment you confirm."/>}
           <div className="flex gap-3">
             <button onClick={()=>setStep(1)} className="flex-1 py-3 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-sm">← Back</button>
-            <button onClick={async ()=>{
-              if(submitting||done) return;
-              setSubmitting(true);
-
-              const slotId=`slt-${Date.now()}`;
-              const wdId=`wd-${Date.now()}`;
-              const daysInFund=Math.max(0,Math.ceil((new Date()-new Date(INVESTOR_CYCLE.start))/(1000*60*60*24)));
-
-              // CAPITAL → listed on market immediately, no withdrawal record needed
+            <button onClick={()=>{
+              setInvestor(prev=>({...prev,profit_withdrawn:true}));
+              setWds(ws=>[...ws,{
+                id:`wd-${Date.now()}`,
+                investorId:investor.id,
+                investor:investor.name,
+                bank:investor.bank,
+                account:investor.account||investor.account_number,
+                type,
+                amount:profitAmt+capToList,
+                capital:capToList,
+                date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
+                status:"pending",
+                adminNote:"",
+              }]);
               if(capToList>0){
-                const slotRecord={
-                  slot_id:slotId,
+                setSlots(ss=>[...ss,{
+                  slot_id:`slt-${Date.now()}`,
                   seller:investor.name,
-                  seller_investor_id:investor.id,
-                  cycle_name:INVESTOR_CYCLE.name,
+                  cycle:INVESTOR_CYCLE.name,
                   capital:capToList,
-                  stake_pct:Number(((capToList/(INVESTOR_CYCLE.pool||100400000))*100).toFixed(3)),
+                  stake_pct:Number(((capToList/INVESTOR_CYCLE.pool)*100).toFixed(3)),
                   sale_amount:capToList,
-                  days_in_fund:daysInFund,
+                  days_in_fund:Math.max(0,Math.ceil((new Date()-new Date(investor.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))),
                   expected_rate:INVESTOR_CYCLE.profit_rate,
                   lock:false,sold:false,is_company:false,
-                };
-                await supabase.from('market_slots').insert(slotRecord);
-                if(setMyListing) setMyListing({
-                  slot_id:slotId,
-                  capital:capToList,
-                  sale_amount:capToList,
-                  cycle:INVESTOR_CYCLE.name,
-                  status:"listed",
-                  sold:false,lock:false,
-                });
+                }]);
               }
-
-              // PROFIT → goes to admin approval queue
-              if(profitAmt>0){
-                await api.submitWithdrawal({
-                  id:wdId,
-                  investor_id:investor.id,
-                  investor_name:investor.name,
-                  bank:investor.bank,
-                  account:investor.account||investor.account_number,
-                  type:"profit_only",
-                  amount:profitAmt,
-                  capital:0,
-                  date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
-                  status:"pending",
-                  admin_note:"",
-                });
-                // Flag profit as submitted
-                await supabase.from('investors').update({profit_withdrawn:true}).eq('id',investor.id);
-                setInvestor(prev=>({...prev,profit_withdrawn:true}));
-                if(setWithdrawalPending) setWithdrawalPending(true);
-              }
-
               setDone(true);
-            }} disabled={submitting||done} className={`flex-1 py-3 font-bold rounded-xl text-sm transition-all ${(submitting||done)?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{submitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Submitting…</span>:"Confirm"}</button>
+            }} className="flex-1 py-3 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Confirm</button>
           </div>
         </div>
       )}
@@ -1407,17 +1058,9 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
   );
 };
 
-const HistoryScreen = ({investor, cycles:liveCycles}) => {
+const HistoryScreen = ({investor}) => {
   const [showFormula,setShowFormula]=useState(false);
-  // Only show cycles this investor was part of
-  const myCycles = liveCycles?.length
-    ? liveCycles.filter(c=>
-        c.status==="closed" &&
-        c.total_profit &&
-        (c.member_ids?.includes(investor.id) || !c.member_ids?.length)
-      )
-    : [INVESTOR_CYCLE];
-  const c = myCycles[0] || INVESTOR_CYCLE;
+  const c=INVESTOR_CYCLE;
   const investor_profit  = c.total_profit*(c.investor_split/100);
   const company_retained = c.total_profit*(c.company_stake_pct/100);
   const company_capital  = companyCapital(c);
@@ -1425,62 +1068,50 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
   return(
     <div className="space-y-5 pb-24">
       <h2 className="text-xl font-black text-white">Profit History</h2>
-      {myCycles.length===0&&(
-        <Card className="text-center py-6 space-y-2">
-          <TrendingUp className="w-8 h-8 text-white/20 mx-auto"/>
-          <p className="text-sm text-white/40">No history yet.</p>
-          <p className="text-[11px] text-white/25">Your profit allocation will appear here after your first cycle closes.</p>
-        </Card>
-      )}
-      {myCycles.map(c=>{
-        const {investorPct, companyPct} = actualSplit(c);
-        const investor_profit  = (c.total_profit||0)*(investorPct/100);
-        const company_retained = (c.total_profit||0)*(companyPct/100);
-        const company_capital  = companyCapital(c);
-        const total_portfolio  = c.pool + company_capital;
-        return(
-          <div key={c.id} className="space-y-4">
-            <Card className="space-y-3">
-              <Label>Cycle Summary — {c.name}</Label>
-              {[[`Total Portfolio`,fmt(total_portfolio)],[`Investor Pool (${investorPct.toFixed(2)}%)`,fmt(c.pool)],[`Company Stake (${companyPct.toFixed(2)}%)`,fmt(company_capital)],[`Net Profit`,fmt(c.total_profit)],[`Investor Profit`,fmt(investor_profit)],[`Company Retained`,fmt(company_retained)],[`Profit Rate`,`${c.profit_rate}%`]].map(([l,v])=>(
-                <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold font-mono">{v}</span></div>
-              ))}
-            </Card>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Your Allocation</p>
-              <Card className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-sm font-black text-white">{c.name}</p><p className="text-[10px] text-white/40">{fmtDate(c.start)} — {fmtDate(c.end)}</p></div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 border border-emerald-500/20 text-emerald-400">Allocated</span>
-                </div>
-                <Divider/>
-                <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-2">
-                  <p className="text-sm text-white leading-relaxed">
-                    Your <strong className="text-blue-400">{fmt(investor.capital)}</strong> was <strong className="text-blue-400">{investor.stake}%</strong> of the total fund.<br/>
-                    You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.approved_withdrawals||investor.profit)}</strong>.
-                  </p>
-                </div>
-                <button onClick={()=>setShowFormula(!showFormula)} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors w-full">
-                  {showFormula?<ChevronUp className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>}
-                  How was this calculated?
-                </button>
-                {showFormula&&(
-                  <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3">
-                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1.5">Formula (backend computed)</p>
-                    <p className="text-[11px] text-white/50 leading-relaxed font-mono">(₦{(investor.capital/1000).toFixed(0)}k ÷ ₦{(c.pool/1000).toFixed(0)}k) × {fmt(investor_profit)} = {fmt(investor.profit)}</p>
-                    <p className="text-[10px] text-white/25 mt-1">Computed by the backend system at cycle close. Read-only.</p>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.approved_withdrawals||investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${c.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
-                    <div key={l}><Label>{l}</Label><p className={`text-sm font-black font-mono ${color}`}>{v}</p></div>
-                  ))}
-                </div>
-              </Card>
-            </div>
+      <Card className="space-y-3">
+        <Label>Cycle Summary — {c.name}</Label>
+        {[["Total Portfolio",fmt(total_portfolio)],["Investor Pool (70%)",fmt(c.pool)],["Company Stake (30%)",fmt(company_capital)],["Net Profit",fmt(c.total_profit)],["Investor Profit",fmt(investor_profit)],["Company Retained",fmt(company_retained)],["Profit Rate",`${c.profit_rate}%`]].map(([l,v])=>(
+          <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold font-mono">{v}</span></div>
+        ))}
+      </Card>
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Your Allocation History</p>
+        <Card className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div><p className="text-sm font-black text-white">Mar–May 2026</p><p className="text-[10px] text-white/40">{INVESTOR_CYCLE.name}</p></div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 border border-emerald-500/20 text-emerald-400">Allocated</span>
           </div>
-        );
-      })}
+          <Divider/>
+
+          {/* Plain language explanation — Fix 3 */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-2">
+            <p className="text-sm text-white leading-relaxed">
+              Your <strong className="text-blue-400">{fmt(investor.capital)}</strong> was <strong className="text-blue-400">{investor.stake}%</strong> of the total fund.<br/>
+              You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.profit)}</strong>.
+            </p>
+          </div>
+
+          {/* Collapsible technical formula */}
+          <button onClick={()=>setShowFormula(!showFormula)} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors w-full">
+            {showFormula?<ChevronUp className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>}
+            How was this calculated?
+          </button>
+          {showFormula&&(
+            <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3">
+              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1.5">Formula (backend computed)</p>
+              <p className="text-[11px] text-white/50 leading-relaxed font-mono">(₦{(investor.capital/1000).toFixed(0)}k ÷ ₦{(c.pool/1000).toFixed(0)}k) × {fmt(investor_profit)} = {fmt(investor.profit)}</p>
+              <p className="text-[10px] text-white/25 mt-1">Computed by the backend system at cycle close. Read-only.</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${INVESTOR_CYCLE.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
+              <div key={l}><Label>{l}</Label><p className={`text-sm font-black font-mono ${color}`}>{v}</p></div>
+            ))}
+          </div>
+          <p className="text-[10px] text-white/30 text-center">Allocated {fmtDate("2026-06-01")}</p>
+        </Card>
+      </div>
       <Banner type="info" msg="Future cycles will show month-by-month allocation history as the admin uploads profit data each month."/>
     </div>
   );
@@ -1666,143 +1297,45 @@ const ListSlotModal = ({onClose,onList,investor}) => {
   );
 };
 
-const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,setInvestor,setWithdrawalPending}) => {
-  const savedTab = (() => { try { return localStorage.getItem('noorinvest_market_tab')||"buy"; } catch { return "buy"; } })();
-  const [activeTab,setActiveTab]=useState(savedTab);
-  const changeTab = t => { setActiveTab(t); try { localStorage.setItem('noorinvest_market_tab',t); } catch {} };
+const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays}) => {
+  const [activeTab,setActiveTab]=useState("buy");
   const [purchasing,setPurchasing]=useState(null);
   const [showList,setShowList]=useState(false);
   const [lockDemo,setLockDemo]=useState(false);
   const [purchased,setPurchased]=useState([]);
 
-  // Refresh live slot data from Supabase every time this screen opens
-  useEffect(()=>{
-    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
-  },[]);
-
-  const handleConfirm=async (slotId,amt)=>{
+  const handleConfirm=(slotId,amt)=>{
     const slot=slots.find(s=>s.slot_id===slotId);
-    const payId=`pay-${Date.now()}`;
-    const amount=slot?.sale_amount||amt;
-    const cycleName=slot?.cycle||slot?.cycle_name||INVESTOR_CYCLE.name;
-    const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-
-    // Lock slot (not sold yet — only sold after admin approves)
     setPurchased(p=>[...p,slotId]);
-    setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,lock:true}:s));
+    setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,sold:true}:s));
     setPays(ps=>[...ps,{
-      id:payId,
+      id:`pay-${Date.now()}`,
       type:"slot_purchase",
       investor:investor.name,
       investorId:investor.id,
-      amount,
-      cycle:cycleName,
-      date:dateStr,
+      amount:slot?.sale_amount||amt,
+      cycle:slot?.cycle||INVESTOR_CYCLE.name,
+      date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
       status:"pending",
-      slot_id:slotId,
-      seller:slot?.seller||"",
       receipt:null,
       rejectReason:"",
     }]);
-
-    // Save payment to Supabase with slot_id and seller details
-    await api.submitPayment({
-      id:payId,
-      type:"slot_purchase",
-      investor_name:investor.name,
-      investor_id:investor.id,
-      amount,
-      cycle_name:cycleName,
-      date:dateStr,
-      status:"pending",
-      slot_id:slotId,
-      seller_name:slot?.seller||"",
-      receipt:null,
-      reject_reason:"",
-    });
-
-    // Lock slot in Supabase (not sold yet)
-    try {
-      await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId);
-    } catch {}
   };
 
-  const handleList=async ({capital,sale_amount})=>{
-    if(!capital||capital<=0) return;
-    const slotId=`slt-${Date.now()}`;
-    const daysInFund=Math.max(0,Math.ceil((new Date()-new Date(investor.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24)));
-    const newSlot={
-      slot_id:slotId,
-      seller:investor.name,
-      cycle:INVESTOR_CYCLE.name,
-      capital,
-      stake_pct:Number(((capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
-      sale_amount,
-      days_in_fund:daysInFund,
-      expected_rate:INVESTOR_CYCLE.profit_rate,
-      lock:false,sold:false,is_company:false,
-    };
-    setMyListing({...newSlot,status:"listed",days:getDays(sale_amount)});
-    setSlots(ss=>[...ss,newSlot]);
-    // Capital stays unchanged in DB - listing is just a market intent
-    // Display shows reduced capital by deducting listing amount at render time
-    // Issue 5: Save to Supabase so other users see it after refresh
-    try {
-      await supabase.from('market_slots').insert({
-        slot_id:slotId,
-        seller:investor.name,
-        seller_investor_id:investor.id,
-        cycle_name:INVESTOR_CYCLE.name,
-        capital,
-        stake_pct:newSlot.stake_pct,
-        sale_amount,
-        days_in_fund:daysInFund,
-        expected_rate:INVESTOR_CYCLE.profit_rate,
-        lock:false,sold:false,is_company:false,
-      });
-    } catch {}
+  const handleList=({capital,sale_amount})=>{
+    setMyListing({slot_id:"slt-my-001",cycle:INVESTOR_CYCLE.name,capital,sale_amount,status:"listed",days:getDays(sale_amount)});
   };
 
-  const handleWithdrawListing=async ()=>{
-    if(myListing){
-      // Mark slot as withdrawn in Supabase
-      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch {}
-      // Also try by seller_investor_id as fallback
-      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',investor.id).eq('sold',false); } catch {}
-      // Cancel any pending withdrawal with capital so startup useEffect doesn't restore myListing
-      try {
-        await supabase.from('withdrawals')
-          .update({status:'cancelled'})
-          .eq('investor_id',investor.id)
-          .eq('status','pending')
-          .gt('capital',0);
-      } catch {}
-      // Reset profit_withdrawn in Supabase
-      try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',investor.id); } catch {}
-      // Reset local state
-      if(setInvestor) setInvestor(prev=>({...prev,profit_withdrawn:false}));
-      // Reset withdrawalPending so withdrawal form shows again
-      if(setWithdrawalPending) setWithdrawalPending(false);
-      // Force refresh slots from Supabase
-      api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
-    }
-    setMyListing(null);
-    // Capital in DB is unchanged - display restores automatically when myListing is null
-  };
+  const handleWithdrawListing=()=>setMyListing(null);
 
-  const availableSlots=slots.filter(s=>
-    !s.sold &&
-    !s.lock &&
-    s.seller_investor_id!==investor.id &&
-    s.seller!==investor.name
-  );
+  const availableSlots=slots.filter(s=>!s.sold);
 
   return(
     <div className="space-y-5 pb-24">
       {/* Tabs */}
       <div className="flex gap-2 p-1 bg-white/5 border border-white/10 rounded-xl">
         {[{id:"buy",label:"Buy Slots"},{id:"sell",label:"My Listing"}].map(({id,label})=>(
-          <button key={id} onClick={()=>changeTab(id)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab===id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>{label}</button>
+          <button key={id} onClick={()=>setActiveTab(id)} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${activeTab===id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>{label}</button>
         ))}
       </div>
 
@@ -1900,49 +1433,18 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
   );
 };
 
-const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCycles}) => {
+const InvestScreen = ({waitingList,setWaitingList,investor,setPays}) => {
   const [selectedCycle,setSelectedCycle]=useState(null);
   const [step,setStep]=useState(1);
   const [amount,setAmount]=useState("");
   const [err,setErr]=useState("");
   const [joinedWaiting,setJoinedWaiting]=useState(!!waitingList);
   const [showWaitConfirm,setShowWaitConfirm]=useState(false);
-  const [transferring,setTransferring]=useState(false);
-  const [submitted,setSubmitted]=useState(null);
   const parsed=parseI(amount);
   const next=()=>{if(parsed<selectedCycle?.min_investment){setErr(`Minimum is ${fmt(selectedCycle.min_investment)}`);return;}if(parsed>selectedCycle?.max_investment){setErr(`Maximum is ${fmt(selectedCycle.max_investment)}`);return;}setErr("");setStep(2);};
-  const handleJoinWaiting=()=>{setWaitingList({cycle:selectedCycle?.name||INVESTOR_FUTURE_CYCLE.name,position:1,joined:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});setJoinedWaiting(true);setShowWaitConfirm(false);};
+  const handleJoinWaiting=()=>{setWaitingList({cycle:INVESTOR_FUTURE_CYCLE.name,position:1,joined:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});setJoinedWaiting(true);setShowWaitConfirm(false);};
 
-  // Build cycle list from live data, falling back to hardcoded if none available
-  const availCycles = liveCycles?.length
-    ? liveCycles
-        .filter(c=>c.status!=="closed"&&c.status!=="archived")
-        .map(c=>({
-          ...c,
-          current_pool: c.pool||0,
-          min_investment: c.min_investment||100000,
-          max_investment: c.max_investment||20000000,
-          expected_rate: c.profit_rate||c.expected_rate||null,
-          slots_left: c.accepting===false ? 0 : (c.slots_left||18),
-          is_full: c.accepting===false || c.is_full||false,
-        }))
-    : [INVESTOR_NEXT_CYCLE, INVESTOR_FUTURE_CYCLE];
-
-  // 4A: Investment status screen — checked FIRST before any other render
-  if(submitted) return(
-    <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-8">
-      <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-10 h-10 text-emerald-400"/></div>
-      <div><h2 className="text-xl font-black text-white">Transfer Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your transfer has been recorded. Admin will verify and activate your slot within 24 hours.</p></div>
-      <Card className="w-full text-left space-y-3">
-        <Label>Submission Summary</Label>
-        {[["Cycle",submitted.cycle],["Amount",fmt(submitted.amount)],["Date",submitted.date],["Reference",submitted.ref.slice(-8).toUpperCase()],["Status","Pending Admin Verification"]].map(([l,v])=>(
-          <div key={l} className="flex justify-between text-sm gap-2"><span className="text-white/40 flex-shrink-0">{l}</span><span className={`font-semibold text-right ${l==="Status"?"text-amber-400":"text-white"}`}>{v}</span></div>
-        ))}
-      </Card>
-      <Banner type="info" msg="Keep the reference number above as proof of your transfer. You will be notified once your slot is activated."/>
-      <button onClick={()=>setSubmitted(null)} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">View Other Investments</button>
-    </div>
-  );
+  const cycles=[INVESTOR_NEXT_CYCLE,INVESTOR_FUTURE_CYCLE];
 
   if(selectedCycle&&step===1){
     const fill=((selectedCycle.current_pool/selectedCycle.target_pool)*100).toFixed(1);
@@ -2040,12 +1542,9 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
           ))}
         </Card>
         <Banner type="warning" msg="No extra fees. Transfer the exact amount shown. Use your registered name as narration."/>
-        <button onClick={async ()=>{
-          if(transferring) return;
-          setTransferring(true);
-          const payId=`pay-${Date.now()}`;
-          const payRecord={
-            id:payId,
+        <button onClick={()=>{
+          setPays(ps=>[...ps,{
+            id:`pay-${Date.now()}`,
             type:"new_investment",
             investor:investor.name,
             investorId:investor.id,
@@ -2055,27 +1554,9 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
             status:"pending",
             receipt:null,
             rejectReason:"",
-          };
-          // Save to Supabase
-          await api.submitPayment({
-            id:payId,
-            type:"new_investment",
-            investor_name:investor.name,
-            investor_id:investor.id,
-            amount:parsed,
-            cycle_name:selectedCycle.name,
-            date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),
-            status:"pending",
-            receipt:null,
-            reject_reason:"",
-          });
-          setPays(ps=>[...ps,payRecord]);
-          setTransferring(false);
-          setSelectedCycle(null);
-          setStep(1);
-          setAmount("");
-          setSubmitted({cycle:selectedCycle.name,amount:parsed,ref:payId,date:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})});
-        }} disabled={transferring} className={`w-full py-3.5 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all ${transferring?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700 hover:bg-blue-600 text-white"}`}>{transferring?<><Loader className="w-4 h-4 animate-spin"/>Submitting…</>:<>Done — I've Made This Transfer</>}</button>
+          }]);
+          setSelectedCycle(null);setStep(1);setAmount("");
+        }} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm">Done — I've Made This Transfer</button>
       </div>
     );
   }
@@ -2090,8 +1571,8 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
           <button onClick={()=>setSelectedCycle(INVESTOR_FUTURE_CYCLE)} className="text-[10px] text-blue-400 font-bold hover:text-blue-300 flex-shrink-0">View →</button>
         </Card>
       )}
-      {availCycles.map(c=>{
-        const fill=Math.min(100,((c.current_pool/c.target_pool)*100)).toFixed(1);
+      {cycles.map(c=>{
+        const fill=((c.current_pool/c.target_pool)*100).toFixed(1);
         return(
           <Card key={c.id} className="space-y-4">
             <div className="flex items-start justify-between gap-2">
@@ -2099,16 +1580,15 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border flex-shrink-0 ${c.is_full?"bg-red-700/20 border-red-700/30 text-red-400":"bg-blue-700/20 border-blue-700/30 text-blue-400"}`}>{c.is_full?"Full":"Open"}</span>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              {[{l:"Exp. Rate",v:c.expected_rate?`${c.expected_rate}%`:"Pending",color:c.expected_rate?"text-blue-400":"text-white/40"},{l:"Min. Join",v:fmt(c.min_investment||100000),color:"text-white"},{l:"Slots",v:c.is_full?"Full":c.slots_left||"Open",color:c.is_full?"text-red-400":"text-white"}].map(({l,v,color})=>(
+              {[{l:"Exp. Rate",v:`${c.expected_rate}%`,color:"text-blue-400"},{l:"Min. Join",v:fmt(c.min_investment),color:"text-white"},{l:"Slots",v:c.is_full?"Full":c.slots_left,color:c.is_full?"text-red-400":"text-white"}].map(({l,v,color})=>(
                 <div key={l} className="bg-white/5 rounded-xl p-2.5"><p className="text-[9px] text-white/30 uppercase tracking-widest font-bold">{l}</p><p className={`text-xs font-black mt-0.5 ${color}`}>{v}</p></div>
               ))}
             </div>
             <div>
               <div className="flex justify-between text-[10px] text-white/40 mb-1.5"><span>Fund filled</span><span className="text-white font-semibold">{fill}%</span></div>
               <div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className={`h-full rounded-full ${c.is_full?"bg-red-500":"bg-blue-600"}`} style={{width:`${fill}%`}}/></div>
-              <p className="text-[10px] text-white/30 mt-1">{fmt(c.current_pool||0)} of {fmt(c.target_pool)}</p>
+              <p className="text-[10px] text-white/30 mt-1">{fmt(c.current_pool)} of {fmt(c.target_pool)}</p>
             </div>
-            <Banner type="info" msg="Expected rate reflects past cycle performance — not a guaranteed return."/>
             <button onClick={()=>setSelectedCycle(c)} className={`w-full py-2.5 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all ${c.is_full?"bg-white/5 border border-white/10 text-white/60 hover:border-white/20":"bg-blue-700 hover:bg-blue-600 text-white"}`}>
               {c.is_full?"Join Waiting List":"Join This Cycle"} <ArrowRight className="w-4 h-4"/>
             </button>
@@ -2128,79 +1608,22 @@ const ProfileScreen = ({investor,setInvestor}) => {
   });
   const [saved,setSaved]=useState(false);
   const sd=k=>v=>setDraft(d=>({...d,[k]:v}));
-  const save=async ()=>{
-    setInvestor({...draft});
-    setEditing(false);
-    setSaved(true);
-    setTimeout(()=>setSaved(false),3000);
-    try {
-      await api.updateInvestor(investor.id,{
-        name:draft.name,
-        email:draft.email,
-        phone:draft.phone,
-        address:draft.address,
-        bank:draft.bank,
-        account_number:draft.account_number,
-        account_name:draft.account_name,
-        nok_name:draft.nokName,
-        nok_phone:draft.nokPhone,
-        nok_rel:draft.nokRelationship,
-        nok_addr:draft.nokAddress,
-      });
-    } catch {}
-  };
-  const cancel=()=>{setDraft({...investor,account_number:investor.account_number||investor.account||"",account_name:investor.account_name||investor.name||""});setEditing(false);setBankUnlocked(false);setBankPw("");setBankPwErr("");};
+  const save=()=>{setInvestor({...draft});setEditing(false);setSaved(true);setTimeout(()=>setSaved(false),3000);};
+  const cancel=()=>{setDraft({...investor,account_number:investor.account_number||investor.account||"",account_name:investor.account_name||investor.name||""});setEditing(false);};
 
   const [showPwForm,setShowPwForm]=useState(false);
   const [curPw,setCurPw]=useState(""); const [newPw,setNewPw]=useState(""); const [confirmPw,setConfirmPw]=useState("");
   const [pwErr,setPwErr]=useState(""); const [pwSaved,setPwSaved]=useState(false);
-
-  // 5B: Bank fields require password unlock
-  const [bankUnlocked,setBankUnlocked]=useState(false);
-  const [bankPw,setBankPw]=useState("");
-  const [bankPwErr,setBankPwErr]=useState("");
-  const [showBankUnlock,setShowBankUnlock]=useState(false);
-
-  const verifyBankPw=async()=>{
-    setBankPwErr("");
-    try {
-      const { data } = await supabase.from('users').select('password_hash').eq('phone',investor.phone).single();
-      if(!data){ setBankPwErr("Could not verify. Try again."); return; }
-      const { data: valid } = await supabase.rpc('verify_password', { plaintext: bankPw, hash: data.password_hash });
-      if(!valid){ setBankPwErr("Incorrect password."); return; }
-      setBankUnlocked(true);setShowBankUnlock(false);setBankPw("");
-    } catch { setBankPwErr("Could not verify. Try again."); }
-  };
-  const changePw=async ()=>{
+  const changePw=()=>{
     setPwErr("");
+    const record=store.find(u=>u.phone===investor.phone);
+    if(!record||record.pw!==curPw){setPwErr("Current password is incorrect.");return;}
     if(newPw.length<6){setPwErr("New password must be at least 6 characters.");return;}
     if(newPw!==confirmPw){setPwErr("New passwords do not match.");return;}
-    try {
-      const { data:userData } = await supabase
-        .from('users')
-        .select('password_hash')
-        .eq('phone', investor.phone)
-        .single();
-      if(!userData){ setPwErr("Could not verify your account. Try again."); return; }
-      // Verify current password server-side
-      const { data: valid } = await supabase.rpc('verify_password', {
-        plaintext: curPw,
-        hash: userData.password_hash
-      });
-      if(!valid){ setPwErr("Current password is incorrect."); return; }
-      // Hash new password server-side
-      const { data: newHash } = await supabase.rpc('hash_password', { plaintext: newPw });
-      if(!newHash){ setPwErr("Failed to update password. Try again."); return; }
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ password_hash: newHash })
-        .eq('phone', investor.phone);
-      if(updateError){ setPwErr("Failed to update password. Try again."); return; }
-      setCurPw("");setNewPw("");setConfirmPw("");
-      setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
-    } catch {
-      setPwErr("Something went wrong. Check your connection and try again.");
-    }
+    const idx=store.findIndex(u=>u.phone===investor.phone);
+    if(idx>=0)store[idx]={...store[idx],pw:newPw};
+    setCurPw("");setNewPw("");setConfirmPw("");
+    setShowPwForm(false);setPwSaved(true);setTimeout(()=>setPwSaved(false),3000);
   };
 
   return(
@@ -2232,33 +1655,10 @@ const ProfileScreen = ({investor,setInvestor}) => {
       </Card>
 
       <Card className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Label>Bank Details</Label>
-          {editing&&!bankUnlocked&&(
-            <button onClick={()=>setShowBankUnlock(true)} className="text-[10px] text-amber-400 font-bold border border-amber-600/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
-              <Lock className="w-3 h-3"/>Unlock to Edit
-            </button>
-          )}
-          {editing&&bankUnlocked&&(
-            <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3"/>Unlocked</span>
-          )}
-        </div>
-
-        {/* Bank unlock password modal */}
-        {showBankUnlock&&(
-          <div className="bg-amber-950/40 border border-amber-600/30 rounded-xl p-3.5 space-y-3">
-            <p className="text-xs text-amber-300 font-semibold">Enter your password to edit bank details</p>
-            <Input label="" type="password" value={bankPw} onChange={setBankPw} icon={Lock} placeholder="Your current password" error={bankPwErr}/>
-            <div className="flex gap-2">
-              <button onClick={()=>{setShowBankUnlock(false);setBankPw("");setBankPwErr("");}} className="flex-1 py-2 bg-white/5 border border-white/10 text-white/60 font-bold rounded-xl text-xs">Cancel</button>
-              <button onClick={verifyBankPw} className="flex-1 py-2 bg-amber-700 hover:bg-amber-600 text-white font-bold rounded-xl text-xs">Verify</button>
-            </div>
-          </div>
-        )}
-
+        <Label>Bank Details</Label>
         <div>
           <p className="text-[10px] font-bold tracking-widest uppercase text-white/40 mb-1">Bank Name</p>
-          {editing&&bankUnlocked
+          {editing
             ? <select value={draft.bank} onChange={e=>sd("bank")(e.target.value)} className="w-full bg-white/5 border border-blue-600/40 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-600/30">
                 <option value="" className="bg-slate-900">Select bank</option>
                 {BANKS.map(b=> <option key={b} value={b} className="bg-slate-900">{b}</option>)}
@@ -2266,8 +1666,8 @@ const ProfileScreen = ({investor,setInvestor}) => {
             : <p className="text-sm text-white font-medium">{draft.bank}</p>
           }
         </div>
-        <EditField label="Account No."   value={draft.account_number} onChange={sd("account_number")} editing={editing&&bankUnlocked}/>
-        <EditField label="Account Name"  value={draft.account_name}   onChange={sd("account_name")}   editing={editing&&bankUnlocked} hint="Must match your bank record"/>
+        <EditField label="Account No."   value={draft.account_number} onChange={sd("account_number")} editing={editing}/>
+        <EditField label="Account Name"  value={draft.account_name}   onChange={sd("account_name")}   editing={editing} hint="Must match your bank record"/>
       </Card>
 
       <Card className="space-y-4">
@@ -2384,186 +1784,8 @@ const InvestorNav = ({active,onChange}) => {
 };
 
 // ── Investor Portal Root ─────────────────────────────────────────────────────
-// ── Investor Requests Screen ──────────────────────────────────────────────────
-const RequestsScreen = ({nav, investor}) => {
-  const [payments,setPayments]=useState([]);
-  const [withdrawals,setWithdrawals]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [activeTab,setActiveTab]=useState("all");
-
-  const fetchData=()=>{
-    setLoading(true);
-    Promise.all([
-      supabase.from('payments').select('*').eq('investor_id',investor.id).order('created_at',{ascending:false}),
-      supabase.from('withdrawals').select('*').eq('investor_id',investor.id).order('created_at',{ascending:false}),
-    ]).then(([{data:pays},{data:wds}])=>{
-      if(pays) setPayments(pays);
-      if(wds) setWithdrawals(wds);
-      setLoading(false);
-    }).catch(()=>setLoading(false));
-  };
-
-  useEffect(()=>{ fetchData(); },[investor.id]);
-
-  const allRequests=[
-    ...payments.map(p=>({
-      id:p.id,
-      kind:"Investment",
-      label:p.cycle_name||p.cycle,
-      amount:Number(p.amount),
-      status:p.status,
-      date:p.date,
-      note:p.reject_reason||"",
-    })),
-    ...withdrawals.map(w=>({
-      id:w.id,
-      kind:w.type==="profit_only"?"Profit Withdrawal":w.type==="capital_mid"?"Capital Listing":"Withdrawal",
-      label:w.investor_name||investor.name,
-      amount:Number(w.amount),
-      status:w.status,
-      date:w.date,
-      note:w.admin_note||"",
-    })),
-  ].sort((a,b)=>new Date(b.date)-new Date(a.date));
-
-  const tabs=[{id:"all",label:"All"},{id:"pending",label:"Pending"},{id:"approved",label:"Approved"},{id:"rejected",label:"Rejected"}];
-  const filtered=activeTab==="all"?allRequests:allRequests.filter(r=>r.status===activeTab);
-
-  const statusStyle={
-    pending:"bg-amber-500/15 border-amber-500/20 text-amber-400",
-    approved:"bg-emerald-500/15 border-emerald-500/20 text-emerald-400",
-    rejected:"bg-red-500/15 border-red-500/20 text-red-400",
-  };
-
-  return(
-    <div className="space-y-5 pb-24">
-      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black text-white">My Requests</h2>
-        <button onClick={fetchData} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-700/20 border border-blue-700/30 text-blue-400 rounded-xl text-xs font-bold">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading?"animate-spin":""}`}/>Refresh
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setActiveTab(t.id)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab===t.id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {loading&&<div className="flex items-center justify-center py-8"><Loader className="w-6 h-6 text-blue-400 animate-spin"/></div>}
-
-      {!loading&&filtered.length===0&&(
-        <Card className="text-center py-8 space-y-2">
-          <Bell className="w-8 h-8 text-white/20 mx-auto"/>
-          <p className="text-sm text-white/40">No {activeTab==="all"?"requests":activeTab+" requests"} yet.</p>
-        </Card>
-      )}
-
-      {!loading&&filtered.length>0&&(
-        <div className="space-y-3">
-          {filtered.map(r=>(
-            <Card key={r.id} className="space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-white">{r.kind}</p>
-                  <p className="text-[11px] text-white/40 truncate">{r.label}</p>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border flex-shrink-0 capitalize ${statusStyle[r.status]||statusStyle.pending}`}>{r.status}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-white/40">Amount</span>
-                <span className="text-white font-bold">{fmt(r.amount)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-white/40">Date</span>
-                <span className="text-white/60">{r.date}</span>
-              </div>
-              {r.note&&(
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2.5">
-                  <p className="text-[11px] text-red-300 leading-relaxed"><strong>Note:</strong> {r.note}</p>
-                </div>
-              )}
-              <div className="flex justify-between text-[10px] text-white/25">
-                <span>Ref: {r.id.slice(-8).toUpperCase()}</span>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ── Investor Performance Reports Screen ──────────────────────────────────────
-const ReportsScreen = ({nav, investor}) => {
-  const [pdfs,setPdfs]=useState([]);
-  const [loading,setLoading]=useState(true);
-
-  useEffect(()=>{
-    // Load PDFs that belong to cycles this investor participated in
-    // First get cycles the investor is a member of
-    supabase.from('cycle_members').select('cycle_id').eq('investor_id',investor.id)
-      .then(({data:memberships})=>{
-        const cycleIds=memberships?.map(m=>m.cycle_id)||[];
-        // Also include cyc-001 and cyc-002 for the original 22 investors
-        // who were seeded without cycle_members rows initially
-        const allCycleIds=[...new Set([...cycleIds,'cyc-001','cyc-002'])];
-        return supabase.from('performance_pdfs')
-          .select('*')
-          .in('cycle_id', allCycleIds)
-          .not('file_url','is',null)
-          .neq('file_url','')
-          .order('uploaded_date',{ascending:false});
-      })
-      .then(({data})=>{ if(data) setPdfs(data); setLoading(false); })
-      .catch(()=>setLoading(false));
-  },[investor.id]);
-
-  return(
-    <div className="space-y-5 pb-24">
-      <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
-      <h2 className="text-xl font-black text-white">Performance Reports</h2>
-      <p className="text-sm text-white/40">Monthly profit-sharing reports uploaded by admin. Tap any report to download.</p>
-      {loading&&<div className="flex items-center justify-center py-8"><Loader className="w-6 h-6 text-blue-400 animate-spin"/></div>}
-      {!loading&&pdfs.length===0&&(
-        <Card className="text-center py-8 space-y-2">
-          <FileText className="w-8 h-8 text-white/20 mx-auto"/>
-          <p className="text-sm text-white/40">No reports uploaded yet.</p>
-          <p className="text-[11px] text-white/25">Reports will appear here once admin uploads them.</p>
-        </Card>
-      )}
-      {!loading&&pdfs.filter(p=>p.fileData||p.file_url).length>0&&(
-        <div className="space-y-3">
-          {pdfs.filter(p=>p.fileData||p.file_url).map(pdf=>(
-            <Card key={pdf.id} className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><FileText className="w-5 h-5 text-blue-400"/></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white truncate">{pdf.cycle_name||pdf.cycle_id}</p>
-                <p className="text-[10px] text-white/40">{pdf.month_label} · Uploaded {fmtDate(pdf.uploaded_date)}</p>
-              </div>
-              {pdf.file_url
-                ? <a href={pdf.file_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold rounded-lg flex-shrink-0">Download</a>
-                : <span className="px-3 py-1.5 bg-white/5 text-white/30 text-xs font-bold rounded-lg flex-shrink-0">Unavailable</span>
-              }
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) => {
-  // Issue 2: Restore last sub-screen on refresh
-  const savedSubView = (() => {
-    try { return JSON.parse(localStorage.getItem('noorinvest_subview')||'null'); } catch { return null; }
-  })();
-  const [view,setView]=useState(savedSubView||IV.HOME);
+const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds}) => {
+  const [view,setView]=useState(IV.HOME);
   const [investor,setInvestor]=useState(
     ALL_INVESTORS.find(i=>i.phone===user?.phone)||
     ALL_INVESTORS.find(i=>i.id===user?.id)||
@@ -2572,95 +1794,22 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     {...INIT_INVESTOR}
   );
 
-  // Issue 3: Loading state — show spinner until real data arrives
-  const [investorLoaded,setInvestorLoaded]=useState(false);
-
-  // Load real investor data AND restore state from Supabase on mount
-  useEffect(()=>{
-    if(user?.phone){
-      Promise.all([
-        api.getInvestor(user.phone),
-        api.getMarketSlots(),
-      ]).then(async ([invData, allSlots])=>{
-        if(invData) setInvestor(invData);
-        // Restore myListing from market slots first
-        if(allSlots){
-          const ownSlot=allSlots.find(s=>!s.sold&&!s.lock&&(s.seller_investor_id===user.id||s.seller===invData?.name));
-          if(ownSlot){
-            setMyListing({...ownSlot,status:"listed",days:getDays(ownSlot.sale_amount)});
-          } else if(invData?.profit_withdrawn){
-            // No market slot but profit_withdrawn=true means pending withdrawal
-            // Restore myListing from pending withdrawal record
-            const {data:pendingWds}=await supabase
-              .from('withdrawals')
-              .select('*')
-              .eq('investor_id',invData.id)
-              .eq('status','pending')
-              .gt('capital',0)
-              .order('created_at',{ascending:false})
-              .limit(1);
-            if(pendingWds&&pendingWds.length>0){
-              const wd=pendingWds[0];
-              setMyListing({
-                slot_id:`wd-listing-${wd.id}`,
-                capital:Number(wd.capital),
-                sale_amount:Number(wd.capital),
-                cycle:wd.cycle_name||INVESTOR_CYCLE.name,
-                status:"pending",
-                sold:false,
-                lock:false,
-              });
-              setWithdrawalPending(true);
-            } else {
-              // No pending withdrawal — admin approved or rejected, clear state
-              setWithdrawalPending(false);
-              setMyListing(null);
-            }
-          }
-        }
-        setInvestorLoaded(true);
+  // Load real investor data from Supabase
+  useState(() => {
+    if (user?.phone) {
+      api.getInvestor(user.phone).then(data => {
+        if (data) setInvestor(data);
       });
-    } else {
-      setInvestorLoaded(true);
     }
-  },[]);
-
+  });
   const [myListing,setMyListing]=useState(INIT_MY_LISTING);
   const [waitingList,setWaitingList]=useState(INIT_WAITING);
-  const [withdrawalPending,setWithdrawalPending]=useState(false);
-
-  // 4E: Notification read state keyed by investor ID so different users don't share state
-  const notifKey=`noorinvest_notifs_read_${investor.id}`;
-  const notifsAlreadyRead = (() => { try { return localStorage.getItem(notifKey)==='true'; } catch { return false; } })();
-  const [notifs,setNotifs]=useState(NOTIFS.map(n=>notifsAlreadyRead?{...n,read:true}:n));
+  const [notifs,setNotifs]=useState(NOTIFS);
   const [showNotifs,setShowNotifs]=useState(false);
   const hasUnread=notifs.some(n=>!n.read);
-
-  // Issue 2: Save sub-screen on every nav change
-  const nav=v=>{
-    setView(v);
-    try { localStorage.setItem('noorinvest_subview',JSON.stringify(v)); } catch {}
-  };
-
-  const markRead=()=>{
-    setNotifs(ns=>ns.map(n=>({...n,read:true})));
-    api.markNotificationsRead(investor.id);
-    try { localStorage.setItem(notifKey,'true'); } catch {}
-  };
-  const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement",[IV.REPORTS]:"Performance Reports",[IV.REQUESTS]:"My Requests"};
-  // Capital displayed to investor = actual capital minus any amount currently listed on market
-  const displayCapital = Math.max(0, (investor.capital||0) - (myListing&&!myListing.sold?myListing.capital||0:0));
-  const displayInvestor = {...investor, capital:displayCapital};
-
-  // Issue 3: Show loading screen until real data arrives
-  if(!investorLoaded) return(
-    <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,#0A1628 0%,#0d1f3c 100%)"}}>
-      <div className="flex flex-col items-center gap-4">
-        <Loader className="w-10 h-10 text-blue-400 animate-spin"/>
-        <p className="text-white/40 text-sm font-medium">Loading your account…</p>
-      </div>
-    </div>
-  );
+  const nav=v=>setView(v);
+  const markRead=()=>setNotifs(ns=>ns.map(n=>({...n,read:true})));
+  const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement"};
   return(
     <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
@@ -2678,15 +1827,13 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         </div>
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
-        {view===IV.HOME     &&<HomeScreen nav={nav} investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={displayInvestor} rawCapital={investor.capital} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds} withdrawalPending={withdrawalPending} setWithdrawalPending={setWithdrawalPending} myListing={myListing} setMyListing={setMyListing}/>}
-        {view===IV.HISTORY  &&<HistoryScreen investor={displayInvestor} cycles={cycles}/>}
-        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={displayInvestor} setPays={setPays} setInvestor={setInvestor} setWithdrawalPending={setWithdrawalPending}/>}
-        {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={displayInvestor} setPays={setPays} cycles={cycles}/>}
+        {view===IV.HOME     &&<HomeScreen nav={nav} investor={investor}/>}
+        {view===IV.WITHDRAW &&<WithdrawScreen nav={nav} investor={investor} setInvestor={setInvestor} setSlots={setSlots} setWds={setWds}/>}
+        {view===IV.HISTORY  &&<HistoryScreen investor={investor}/>}
+        {view===IV.MARKET   &&<MarketScreen slots={slots} setSlots={setSlots} myListing={myListing} setMyListing={setMyListing} investor={investor} setPays={setPays}/>}
+        {view===IV.INVEST   &&<InvestScreen waitingList={waitingList} setWaitingList={setWaitingList} investor={investor} setPays={setPays}/>}
         {view===IV.PROFILE  &&<ProfileScreen investor={investor} setInvestor={setInvestor}/>}
-        {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={displayInvestor}/>}
-        {view===IV.REPORTS  &&<ReportsScreen nav={nav} investor={investor}/>}
-        {view===IV.REQUESTS &&<RequestsScreen nav={nav} investor={investor}/>}
+        {view===IV.STATEMENT&&<StatementScreen nav={nav} investor={investor}/>}
       </div>
       <InvestorNav active={view} onChange={nav}/>
       {showNotifs&&<NotifPanel onClose={()=>setShowNotifs(false)} onMarkRead={markRead} notifs={notifs}/>}
@@ -2694,104 +1841,25 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   );
 };
 // ── Admin Panel Screens ──────────────────────────────────────────────────────
-const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
-  // Refresh live cycle data from Supabase every time the dashboard opens
-  useEffect(()=>{
-    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); }; });
-  },[]);
-
+const DashScreen=({nav,cycles,setCycles,pendingCount})=>{
   const totalPool=ALL_INVESTORS.reduce((s,i)=>s+i.capital,0);
   const openCycle=cycles.find(c=>c.status==="open");
   const closedCycles=cycles.filter(c=>c.status==="closed"&&c.total_profit!=null);
   const lastClosed=closedCycles.length?closedCycles.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b):null;
-  const companyRetained=lastClosed?(()=>{const {companyPct}=actualSplit(lastClosed);return lastClosed.total_profit*(companyPct/100);})():0;
-  const companyRetainedPct=lastClosed?actualSplit(lastClosed).companyPct:30;
-
-  // Company profit from open cycle monthly distribution
-  const activeCycleProfit=openCycle?.total_profit||0;
-  const {companyPct:activeCoPct}=openCycle?actualSplit(openCycle):{companyPct:30};
-  const companyActiveProfit=activeCycleProfit*(activeCoPct/100);
-  // Subtract investor profits already paid out (779,739.80) to get company share
-  const investorPaidOut=activeCycleProfit-companyActiveProfit;
-  const companyMonthlyProfit=Math.max(0,activeCycleProfit-investorPaidOut);
-
-  // Company profit withdrawal state
-  const [showWithdraw,setShowWithdraw]=useState(false);
-  const [wdSubmitting,setWdSubmitting]=useState(false);
-  const [wdDone,setWdDone]=useState(false);
-
-  const handleCompanyWithdraw=async()=>{
-    if(wdSubmitting||wdDone||!openCycle||companyMonthlyProfit<=0) return;
-    setWdSubmitting(true);
-    const wdId=`wd-company-${Date.now()}`;
-    const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-    try {
-      await supabase.from('withdrawals').insert({
-        id:wdId,
-        investor_id:"company",
-        investor_name:"Gigabundle Ltd (Company)",
-        bank:"Moniepoint MFB",
-        account:"4650580467",
-        type:"profit_only",
-        amount:companyMonthlyProfit,
-        capital:0,
-        date:dateStr,
-        status:"approved",
-        admin_note:`Company June 2026 profit from ${openCycle.name} — auto-approved`,
-      });
-      if(setWds) setWds(ws=>[...ws,{id:wdId,investor:"Gigabundle Ltd (Company)",investorId:"company",type:"profit_only",amount:companyMonthlyProfit,date:dateStr,status:"approved",adminNote:"Company June profit — auto-approved"}]);
-      setWdDone(true);
-    } catch(e){ console.error(e); }
-    setWdSubmitting(false);
-  };
+  const companyRetained=lastClosed?lastClosed.total_profit*(lastClosed.company_stake_pct/100):0;
   return (
     <div className="space-y-5 pb-24">
       <div><p className="text-xs text-white/40">Admin Panel</p><h1 className="text-xl font-black text-white">Dashboard</h1></div>
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Total Investor Pool" value={fmtM(totalPool)}  sub="22 investors"      icon={Wallet}      color="text-blue-400"    bg="bg-blue-700/10 border-blue-700/20"/>
         <StatCard label="Last Cycle Profit"   value={lastClosed?fmtM(lastClosed.total_profit):"—"} sub={lastClosed?lastClosed.name:"No closed cycle yet"}      icon={TrendingUp}  color="text-emerald-400" bg="bg-emerald-700/10 border-emerald-700/20"/>
-        <StatCard label="Company Retained"    value={lastClosed?fmtM(companyRetained):"—"} sub={lastClosed?`${companyRetainedPct.toFixed(2)}% of net profit`:"—"}    icon={Building2}   color="text-purple-400"  bg="bg-purple-700/10 border-purple-700/20"/>
+        <StatCard label="Company Retained"    value={lastClosed?fmtM(companyRetained):"—"} sub={lastClosed?`${lastClosed.company_stake_pct}% of net profit`:"—"}    icon={Building2}   color="text-purple-400"  bg="bg-purple-700/10 border-purple-700/20"/>
         <StatCard label="Pending Actions"     value={pendingCount}      sub="Require attention" icon={CheckSquare} color="text-amber-400"   bg="bg-amber-700/10 border-amber-700/20"/>
       </div>
       {pendingCount>0&&<Banner type="warning" msg={`${pendingCount} pending items require your attention.`}/>}
-
-      {/* Company profit withdrawal */}
-      {openCycle&&companyMonthlyProfit>0&&(
-        <Card className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Company Profit — June 2026</Label>
-              <p className="text-xl font-black text-purple-400 font-mono">{fmt(companyMonthlyProfit)}</p>
-              <p className="text-[10px] text-white/40">{activeCoPct.toFixed(2)}% of June distribution · {openCycle.name}</p>
-            </div>
-            <Building2 className="w-8 h-8 text-purple-400/40"/>
-          </div>
-          {wdDone
-            ? <Banner type="success" msg="Company profit withdrawal recorded successfully."/>
-            : <>
-                <button onClick={()=>setShowWithdraw(s=>!s)} className="w-full py-2.5 bg-purple-700/15 border border-purple-700/30 text-purple-400 rounded-xl text-xs font-bold hover:bg-purple-700/25">
-                  {showWithdraw?"Cancel":"Withdraw Company Profit"}
-                </button>
-                {showWithdraw&&(
-                  <div className="space-y-3">
-                    <Card className="space-y-2">
-                      <Label>Payment Account</Label>
-                      {[["Bank","Moniepoint MFB"],["Account","4650580467"],["Name","Gigabundle Ltd"],["Amount",fmt(companyMonthlyProfit)]].map(([l,v])=>(
-                        <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold">{v}</span></div>
-                      ))}
-                    </Card>
-                    <button onClick={handleCompanyWithdraw} disabled={wdSubmitting} className={`w-full py-2.5 font-bold rounded-xl text-sm ${wdSubmitting?"bg-white/10 text-white/40":"bg-purple-700 hover:bg-purple-600 text-white"}`}>
-                      {wdSubmitting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Recording…</span>:"Confirm Withdrawal"}
-                    </button>
-                  </div>
-                )}
-              </>
-          }
-        </Card>
-      )}
       {openCycle&&(
         <Card className="space-y-3">
-          <div className="flex items-start justify-between"><div><Label>Active Cycle</Label><p className="text-sm font-black text-white">{openCycle.name}</p><p className="text-xs text-white/40">{fmtDate(openCycle.start)} — {fmtDate(openCycle.end)}</p></div><Pill label={openCycle.accepting?"Accepting":"Closed to New"} color={openCycle.accepting?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-amber-700/20 border-amber-700/30 text-amber-400"}/></div>
+          <div className="flex items-start justify-between"><div><Label>Active Cycle</Label><p className="text-sm font-black text-white">{openCycle.name}</p><p className="text-xs text-white/40">{fmtDate(openCycle.start)} — {fmtDate(openCycle.end)}</p></div><Pill label="Open" color="bg-blue-700/20 border-blue-700/30 text-blue-400"/></div>
           <div className="grid grid-cols-3 gap-2 text-center">
             {[{l:"Pool",v:fmtM(openCycle.pool)},{l:"Investors",v:openCycle.investors},{l:"Accepting",v:openCycle.accepting?"Yes":"No"}].map(({l,v})=>(
               <div key={l} className="bg-white/5 rounded-xl p-2"><p className="text-[9px] text-white/30 uppercase tracking-widest font-bold">{l}</p><p className="text-xs font-black text-white mt-0.5">{v}</p></div>
@@ -2832,7 +1900,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
 
 // ── CREATE CYCLE ──────────────────────────────────────────────────────────────
 const CreateCycleScreen=({nav,onSave})=>{
-  const [f,setF]=useState({name:"",start:"",end:"",target_pool:"",company_stake_pct:"30",rollover_days:"7",min_investment:"100000",max_investment:"20000000"});
+  const [f,setF]=useState({name:"",start:"",end:"",target_pool:"",company_stake_pct:"30",rollover_days:"7"});
   const [errs,setErrs]=useState({});
   const [done,setDone]=useState(false);
   const sf=k=>v=>setF(p=>({...p,[k]:v}));
@@ -2844,11 +1912,8 @@ const CreateCycleScreen=({nav,onSave})=>{
     if(!f.target_pool||isNaN(Number(f.target_pool)))e.target_pool="Valid amount required";
     if(Number(f.company_stake_pct)<0||Number(f.company_stake_pct)>99)e.company_stake_pct="0–99%";
     if(!f.rollover_days||isNaN(Number(f.rollover_days)))e.rollover_days="Valid days required";
-    if(!f.min_investment||isNaN(Number(f.min_investment)))e.min_investment="Valid amount required";
-    if(!f.max_investment||isNaN(Number(f.max_investment)))e.max_investment="Valid amount required";
-    if(Number(f.min_investment)>=Number(f.max_investment))e.max_investment="Must be greater than minimum";
     setErrs(e);if(Object.keys(e).length)return;
-    onSave({id:`cyc-${Date.now()}`,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),pool:0,company_stake_pct:Number(f.company_stake_pct),investor_split:split,rollover_days:Number(f.rollover_days),min_investment:Number(f.min_investment),max_investment:Number(f.max_investment),profit_rate:null,total_profit:null,status:"open",investors:0,accepting:false,member_ids:[]});
+    onSave({id:`cyc-${Date.now()}`,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),pool:0,company_stake_pct:Number(f.company_stake_pct),investor_split:split,rollover_days:Number(f.rollover_days),profit_rate:null,total_profit:null,status:"open",investors:0,accepting:false,member_ids:[]});
     setDone(true);setTimeout(()=>nav(VIEWS.CYCLES),1200);
   };
   if(done) return (<div className="flex flex-col items-center text-center gap-4 pt-16 pb-24"><div className="w-16 h-16 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-emerald-400"/></div><p className="text-lg font-black text-white">Cycle Created</p><p className="text-sm text-white/40">Returning…</p></div>);
@@ -2862,8 +1927,6 @@ const CreateCycleScreen=({nav,onSave})=>{
       <TF label="Target Pool (₦)" value={fmtAmt(f.target_pool)} onChange={v=>sf("target_pool")(parseAmt(v))} error={errs.target_pool}  hint="Company stake calculated from this amount"/>
       <TF label="Company Stake (%)" value={f.company_stake_pct} onChange={v=>setF(p=>({...p,company_stake_pct:v}))} error={errs.company_stake_pct} hint="Locked after creation"/>
       <div className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl"><span className="text-sm text-white/40">Investor Split</span><span className="text-sm font-bold text-blue-400">{split}%</span></div>
-      <TF label="Min Investment (₦)" value={fmtAmt(f.min_investment)} onChange={v=>sf("min_investment")(parseAmt(v))} error={errs.min_investment} hint="Minimum amount an investor can join with"/>
-      <TF label="Max Investment (₦)" value={fmtAmt(f.max_investment)} onChange={v=>sf("max_investment")(parseAmt(v))} error={errs.max_investment} hint="Maximum amount an investor can join with"/>
       <TF label="Rollover Opt-Out Window (days)" value={f.rollover_days} onChange={sf("rollover_days")} error={errs.rollover_days}/>
       <button onClick={submit} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">Create Cycle <ArrowRight className="w-4 h-4"/></button>
     </div>
@@ -2872,7 +1935,7 @@ const CreateCycleScreen=({nav,onSave})=>{
 
 // ── EDIT CYCLE ────────────────────────────────────────────────────────────────
 const EditCycleScreen=({cycle,nav,onSave})=>{
-  const [f,setF]=useState({name:cycle.name,start:cycle.start,end:cycle.end,target_pool:String(cycle.target_pool),rollover_days:String(cycle.rollover_days),min_investment:String(cycle.min_investment||100000),max_investment:String(cycle.max_investment||20000000)});
+  const [f,setF]=useState({name:cycle.name,start:cycle.start,end:cycle.end,target_pool:String(cycle.target_pool),rollover_days:String(cycle.rollover_days)});
   const [errs,setErrs]=useState({});const [done,setDone]=useState(false);
   const sf=k=>v=>setF(p=>({...p,[k]:v}));
   const submit=()=>{
@@ -2880,11 +1943,8 @@ const EditCycleScreen=({cycle,nav,onSave})=>{
     if(f.start&&f.end&&f.end<=f.start)e.end="End must be after start";
     if(!f.target_pool||isNaN(Number(f.target_pool)))e.target_pool="Valid amount required";
     if(!f.rollover_days||isNaN(Number(f.rollover_days)))e.rollover_days="Valid days required";
-    if(!f.min_investment||isNaN(Number(f.min_investment)))e.min_investment="Valid amount required";
-    if(!f.max_investment||isNaN(Number(f.max_investment)))e.max_investment="Valid amount required";
-    if(Number(f.min_investment)>=Number(f.max_investment))e.max_investment="Must be greater than minimum";
     setErrs(e);if(Object.keys(e).length)return;
-    onSave({...cycle,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),rollover_days:Number(f.rollover_days),min_investment:Number(f.min_investment),max_investment:Number(f.max_investment)});
+    onSave({...cycle,name:f.name,start:f.start,end:f.end,target_pool:Number(f.target_pool),rollover_days:Number(f.rollover_days)});
     setDone(true);setTimeout(()=>nav(VIEWS.CYCLES),1200);
   };
   if(done) return (<div className="flex flex-col items-center text-center gap-4 pt-16 pb-24"><div className="w-16 h-16 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-emerald-400"/></div><p className="text-lg font-black text-white">Cycle Updated</p><p className="text-sm text-white/40">Returning…</p></div>);
@@ -2897,8 +1957,6 @@ const EditCycleScreen=({cycle,nav,onSave})=>{
       <TF label="End Date"      value={f.end}          onChange={sf("end")}         error={errs.end}     type="date"/>
       <TF label="Target Pool (₦)" value={fmtAmt(f.target_pool)} onChange={v=>sf("target_pool")(parseAmt(v))} error={errs.target_pool}/>
       <div className="flex items-center justify-between p-3.5 bg-white/5 border border-white/10 rounded-xl"><div><p className="text-[11px] font-bold tracking-widest uppercase text-white/40">Company Stake %</p><p className="text-sm font-bold text-white/50">{cycle.company_stake_pct}%</p></div><div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10"><Lock className="w-3 h-3 text-white/30"/><span className="text-[10px] text-white/30 font-bold">Locked</span></div></div>
-      <TF label="Min Investment (₦)" value={fmtAmt(f.min_investment)} onChange={v=>sf("min_investment")(parseAmt(v))} error={errs.min_investment} hint="Minimum amount an investor can join with"/>
-      <TF label="Max Investment (₦)" value={fmtAmt(f.max_investment)} onChange={v=>sf("max_investment")(parseAmt(v))} error={errs.max_investment} hint="Maximum amount an investor can join with"/>
       <TF label="Rollover Opt-Out Window (days)" value={f.rollover_days} onChange={sf("rollover_days")} error={errs.rollover_days}/>
       <button onClick={submit} className="w-full py-3.5 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">Save Changes <ArrowRight className="w-4 h-4"/></button>
     </div>
@@ -2910,36 +1968,11 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
   const [ticked,setTicked]=useState({});
   const [search,setSearch]=useState("");
   const [done,setDone]=useState(false);
-  const [lockedIds,setLockedIds]=useState(new Set());
-
-  // 5C: Lock investors whose cycle end_date is still in the future (still deployed)
-  useEffect(()=>{
-    const today = new Date().toISOString().slice(0,10);
-    // Step 1: get cycles that haven't ended yet (excluding current cycle)
-    supabase.from('cycles').select('id').gt('end_date', today).neq('id', cycle.id)
-      .then(({data:activeCycles})=>{
-        if(!activeCycles||activeCycles.length===0) return;
-        const activeIds=activeCycles.map(c=>c.id);
-        // Step 2: get investor_ids in those active cycles
-        supabase.from('cycle_members').select('investor_id').in('cycle_id',activeIds)
-          .then(({data})=>{
-            if(data) setLockedIds(new Set(data.map(r=>r.investor_id)));
-          });
-      }).catch(()=>{});
-  },[cycle.id]);
-
   const filtered=ALL_INVESTORS.filter(i=>i.status==="active"&&!(cycle.member_ids||[]).includes(i.id)&&(i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search)));
-  const allSelected=filtered.filter(i=>!lockedIds.has(i.id)).length>0&&filtered.filter(i=>!lockedIds.has(i.id)).every(i=>ticked[i.id]!==undefined);
+  const allSelected=filtered.length>0&&filtered.every(i=>ticked[i.id]!==undefined);
 
-  const toggle=inv=>{
-    if(lockedIds.has(inv.id)) return; // 5C: block locked investors
-    setTicked(t=>{if(t[inv.id]!==undefined){const n={...t};delete n[inv.id];return n;}return{...t,[inv.id]:String(netCap(inv))};});
-  };
-  const toggleAll=()=>{
-    const unlocked=filtered.filter(i=>!lockedIds.has(i.id));
-    if(allSelected){setTicked(t=>{const n={...t};unlocked.forEach(i=>delete n[i.id]);return n;});}
-    else{setTicked(t=>{const n={...t};unlocked.forEach(i=>{if(n[i.id]===undefined)n[i.id]=String(netCap(i));});return n;});}
-  };;
+  const toggle=inv=>{setTicked(t=>{if(t[inv.id]!==undefined){const n={...t};delete n[inv.id];return n;}return{...t,[inv.id]:String(netCap(inv))};});};
+  const toggleAll=()=>{if(allSelected){setTicked(t=>{const n={...t};filtered.forEach(i=>delete n[i.id]);return n;});}else{setTicked(t=>{const n={...t};filtered.forEach(i=>{if(n[i.id]===undefined)n[i.id]=String(netCap(i));});return n;});}};
   const updateAmt=(id,val)=>setTicked(t=>({...t,[id]:val.replace(/[^\d,]/g,"")}));
   const tickedCount=Object.keys(ticked).length;
 
@@ -2966,20 +1999,15 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
       <div className="space-y-2">
         {filtered.map(inv=>{
           const isSel=ticked[inv.id]!==undefined;
-          const isLocked=lockedIds.has(inv.id);
           const net=netCap(inv);
           return (
-            <div key={inv.id} className={`rounded-xl border transition-all ${isLocked?"border-white/5 bg-white/3 opacity-50":isSel?"border-blue-600 bg-blue-700/10":"border-white/10 bg-white/5"}`}>
-              <button onClick={()=>toggle(inv)} disabled={isLocked} className="w-full flex items-center gap-3 p-3 text-left disabled:cursor-not-allowed">
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${isLocked?"border-white/10":isSel?"bg-blue-600 border-blue-600":"border-white/30"}`}>{isSel&&<CheckCircle className="w-3.5 h-3.5 text-white"/>}</div>
+            <div key={inv.id} className={`rounded-xl border transition-all ${isSel?"border-blue-600 bg-blue-700/10":"border-white/10 bg-white/5"}`}>
+              <button onClick={()=>toggle(inv)} className="w-full flex items-center gap-3 p-3 text-left">
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${isSel?"bg-blue-600 border-blue-600":"border-white/30"}`}>{isSel&&<CheckCircle className="w-3.5 h-3.5 text-white"/>}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-bold text-white truncate">{inv.name}</p>
-                    {isLocked&&<span className="text-[9px] font-bold text-amber-400 border border-amber-600/30 px-1.5 py-0.5 rounded-full flex-shrink-0">Locked</span>}
-                  </div>
+                  <p className="text-xs font-bold text-white truncate">{inv.name}</p>
                   <p className="text-[10px] text-white/40">
-                    {isLocked?"Already in an active cycle":
-                    <>Prev: {fmt(inv.capital)}{inv.approved_withdrawals>0&&<span className="text-amber-400"> − {fmt(inv.approved_withdrawals)}</span>} → <span className="text-blue-400 font-bold">Net: {fmt(net)}</span></>}
+                    Prev: {fmt(inv.capital)}{inv.approved_withdrawals>0&&<span className="text-amber-400"> − {fmt(inv.approved_withdrawals)}</span>} → <span className="text-blue-400 font-bold">Net: {fmt(net)}</span>
                   </p>
                 </div>
               </button>
@@ -3007,35 +2035,14 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
 
 // ── CYCLES LIST ───────────────────────────────────────────────────────────────
 const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
+  const visible=cycles.filter(c=>c.status!=="archived");
+  const archived=cycles.filter(c=>c.status==="archived");
   const [showArchived,setShowArchived]=useState(false);
   const [reportOpenId,setReportOpenId]=useState(null);
   const [copiedReportId,setCopiedReportId]=useState(null);
-
-  // Refresh live cycle data from Supabase every time this screen opens
-  useEffect(()=>{
-    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); } });
-  },[]);
-
-  const visible=cycles.filter(c=>c.status!=="archived");
-  const archived=cycles.filter(c=>c.status==="archived");
-  const toggleAccepting=async (id)=>{
-    const cyc=cycles.find(c=>c.id===id);
-    const newAccepting=!cyc?.accepting;
-    setCycles(cs=>cs.map(c=>c.id===id?{...c,accepting:newAccepting}:c));
-    try { await supabase.from('cycles').update({ accepting:newAccepting }).eq('id',id); } catch {}
-  };
-  const archiveCycle=async (id)=>{
-    const cyc=cycles.find(c=>c.id===id);
-    setCycles(cs=>cs.map(c=>c.id===id?{...c,prevStatus:c.status,prevAccepting:c.accepting,status:"archived",accepting:false}:c));
-    try { await supabase.from('cycles').update({ status:"archived", accepting:false }).eq('id',id); } catch {}
-  };
-  const restoreCycle=async (id)=>{
-    const cyc=cycles.find(c=>c.id===id);
-    const restoredStatus=cyc?.prevStatus||"closed";
-    const restoredAccepting=cyc?.prevAccepting||false;
-    setCycles(cs=>cs.map(c=>c.id===id?{...c,status:restoredStatus,accepting:restoredAccepting,prevStatus:undefined,prevAccepting:undefined}:c));
-    try { await supabase.from('cycles').update({ status:restoredStatus, accepting:restoredAccepting }).eq('id',id); } catch {}
-  };
+  const toggleAccepting=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,accepting:!c.accepting}:c));
+  const archiveCycle=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,prevStatus:c.status,prevAccepting:c.accepting,status:"archived",accepting:false}:c));
+  const restoreCycle=id=>setCycles(cs=>cs.map(c=>c.id===id?{...c,status:c.prevStatus||"closed",accepting:c.prevAccepting||false,prevStatus:undefined,prevAccepting:undefined}:c));
 
   const buildCycleReport=c=>[
     "NOORINVEST — CYCLE SUMMARY REPORT",
@@ -3047,13 +2054,13 @@ const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
     "",
     `Investor Pool: ${fmt(c.pool||0)}`,
     `Investors: ${c.investors}`,
-    `Company Stake: ${actualSplit(c).companyPct.toFixed(2)}% (${fmt(companyCapital(c))})`,
+    `Company Stake: ${c.company_stake_pct}% (${fmt(companyCapital(c))})`,
     `Investor Split: ${c.investor_split}%`,
     `Auto-Rollover Window: ${c.rollover_days} days`,
     ...(c.profit_rate?[`Profit Rate: ${c.profit_rate}%`]:[]),
     ...(c.total_profit!=null?[
       `Total Distributed Profit: ${fmt(c.total_profit)}`,
-      `Company Retained (${actualSplit(c).companyPct.toFixed(2)}%): ${fmt(c.total_profit*(actualSplit(c).companyPct/100))}`,
+      `Company Retained (${c.company_stake_pct}%): ${fmt(c.total_profit*(c.company_stake_pct/100))}`,
       `Investor Pool Share (${c.investor_split}%): ${fmt(c.total_profit*(c.investor_split/100))}`,
     ]:[]),
   ].join("\n");
@@ -3126,81 +2133,6 @@ const MembersScreen=({investors,setInvestors})=>{
   const [selectedIds,setSelectedIds]=useState([]);
   const [showStatement,setShowStatement]=useState(false);
   const [copied,setCopied]=useState(false);
-
-  // Password reset state
-  const [showPwReset,setShowPwReset]=useState(false);
-  const [newPw,setNewPw]=useState("");
-  const [pwResetErr,setPwResetErr]=useState("");
-  const [pwResetDone,setPwResetDone]=useState(false);
-  const [pwResetting,setPwResetting]=useState(false);
-
-  const handlePwReset=async()=>{
-    if(!newPw||newPw.length<6){setPwResetErr("Password must be at least 6 characters.");return;}
-    if(!sel?.phone){setPwResetErr("Cannot find investor's phone number.");return;}
-    setPwResetting(true);setPwResetErr("");
-    try {
-      const { data:hashed } = await supabase.rpc('hash_password',{plaintext:newPw});
-      if(!hashed){setPwResetErr("Failed to hash password.");setPwResetting(false);return;}
-      const { error } = await supabase.from('users').update({password_hash:hashed,has_account:true}).eq('phone',sel.phone);
-      if(error){setPwResetErr("Failed to update password. Try again.");setPwResetting(false);return;}
-      setPwResetDone(true);setNewPw("");
-      setTimeout(()=>{setPwResetDone(false);setShowPwReset(false);},3000);
-    } catch { setPwResetErr("Something went wrong."); }
-    setPwResetting(false);
-  };
-
-  // Refresh live investor data from Supabase every time this screen opens
-  useEffect(()=>{
-    api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
-  },[]);
-
-  // CSV download helpers
-  const downloadCSV=(filename,rows)=>{
-    const csv=rows.map(r=>r.map(v=>typeof v==="string"&&v.includes(",")?`"${v}"`:v).join(",")).join("\n");
-    const blob=new Blob([csv],{type:"text/csv"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download=filename;a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadInvestorList=()=>{
-    const headers=["ID","Name","Phone","Email","Bank","Account No","Account Name","Capital","Stake %","Profit","Approved Withdrawals","Status","Investment Date"];
-    const rows=investors.map(i=>[i.id,i.name,i.phone,i.email||"",i.bank||"",i.account_number||i.account||"",i.account_name||"",i.capital,i.stake,i.profit,i.approved_withdrawals,i.status,i.investment_date||""]);
-    downloadCSV(`noorinvest-investors-${new Date().toISOString().slice(0,10)}.csv`,[headers,...rows]);
-  };
-
-  const downloadHistory=async()=>{
-    const [pays,wds]=await Promise.all([
-      supabase.from('payments').select('*').order('created_at',{ascending:false}),
-      supabase.from('withdrawals').select('*').order('created_at',{ascending:false}),
-    ]);
-    const headers=["Type","Investor","Amount","Cycle/Details","Date","Status","Note"];
-    const payRows=(pays.data||[]).map(p=>["Payment",p.investor_name,p.amount,p.cycle_name,p.date,p.status,p.reject_reason||""]);
-    const wdRows=(wds.data||[]).map(w=>["Withdrawal",w.investor_name,w.amount,`${w.type} · ${w.bank} ${w.account}`,w.date,w.status,w.admin_note||""]);
-    downloadCSV(`noorinvest-history-${new Date().toISOString().slice(0,10)}.csv`,[headers,...payRows,...wdRows]);
-  };
-  const [entryTypes,setEntryTypes]=useState({});
-
-  useEffect(()=>{
-    // Load latest payment type per investor to determine entry category
-    supabase.from('payments').select('investor_id,type').eq('status','approved')
-      .then(({data})=>{
-        if(!data) return;
-        const types={};
-        data.forEach(p=>{
-          // Only set if not already set (first approved payment wins)
-          if(!types[p.investor_id]) types[p.investor_id]=p.type;
-        });
-        setEntryTypes(types);
-      }).catch(()=>{});
-  },[]);
-
-  const getEntryTag=(inv)=>{
-    const t=entryTypes[inv.id];
-    if(t==="slot_purchase") return {label:"Slot Buyer",color:"bg-purple-700/20 border-purple-700/30 text-purple-400"};
-    if(t==="rollover") return {label:"Rollover",color:"bg-amber-700/20 border-amber-700/30 text-amber-400"};
-    return {label:"Direct",color:"bg-blue-700/20 border-blue-700/30 text-blue-400"};
-  };
 
   const filtered=investors.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search));
   const sortedFiltered=[...filtered].sort((a,b)=>{
@@ -3323,26 +2255,6 @@ const MembersScreen=({investors,setInvestors})=>{
         </Card>
       )}
 
-      {/* Reset Password */}
-      <button onClick={()=>{setShowPwReset(s=>!s);setPwResetErr("");setNewPw("");setPwResetDone(false);}} className="w-full py-2.5 bg-amber-700/15 border border-amber-700/30 text-amber-400 rounded-xl text-xs font-bold hover:bg-amber-700/25 flex items-center justify-center gap-1.5">
-        <Lock className="w-3.5 h-3.5"/>{showPwReset?"Cancel":"Reset Investor Password"}
-      </button>
-      {showPwReset&&(
-        <Card className="space-y-3">
-          <Label>Set Temporary Password for {sel.name}</Label>
-          {pwResetDone
-            ? <div className="flex items-center gap-2 text-emerald-400 text-sm font-semibold"><CheckCircle className="w-4 h-4"/>Password updated. Investor can now log in.</div>
-            : <>
-                <Input label="New temporary password" type="password" value={newPw} onChange={setNewPw} icon={Lock} placeholder="Minimum 6 characters" error={pwResetErr}/>
-                <Banner type="warning" msg="Share this password securely with the investor. Advise them to change it immediately after logging in."/>
-                <button onClick={handlePwReset} disabled={pwResetting} className={`w-full py-2.5 font-bold rounded-xl text-sm transition-all ${pwResetting?"bg-white/10 text-white/40 cursor-not-allowed":"bg-amber-700 hover:bg-amber-600 text-white"}`}>
-                  {pwResetting?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Updating…</span>:"Set Password"}
-                </button>
-              </>
-          }
-        </Card>
-      )}
-
       {sel.auditLog&&sel.auditLog.length>0&&(
         <Card className="space-y-2">
           <Label>Audit Trail</Label>
@@ -3365,13 +2277,7 @@ const MembersScreen=({investors,setInvestors})=>{
   return (
     <div className="space-y-5 pb-24">
       <div className="flex items-center justify-between">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xl font-black text-white">Members ({investors.length})</h2>
-          <div className="flex gap-2">
-            <button onClick={downloadInvestorList} className="px-2.5 py-1.5 bg-blue-700/20 border border-blue-700/30 text-blue-400 rounded-lg text-[10px] font-bold flex items-center gap-1"><Download className="w-3 h-3"/>Investors</button>
-            <button onClick={downloadHistory} className="px-2.5 py-1.5 bg-purple-700/20 border border-purple-700/30 text-purple-400 rounded-lg text-[10px] font-bold flex items-center gap-1"><Download className="w-3 h-3"/>History</button>
-          </div>
-        </div>
+        <h2 className="text-xl font-black text-white">Members ({investors.length})</h2>
         <button onClick={()=>{setSelectMode(s=>!s);setSelectedIds([]);}} className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border ${selectMode?"bg-blue-700 border-blue-700 text-white":"bg-white/5 border-white/10 text-white/40"}`}>
           {selectMode?"Cancel":"Select"}
         </button>
@@ -3393,24 +2299,10 @@ const MembersScreen=({investors,setInvestors})=>{
               <Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/>
             </button>
           ):(
-            <button key={inv.id} onClick={()=>setSel(inv)} className={`w-full flex items-center gap-3 p-3.5 border rounded-xl hover:border-white/20 transition-all text-left ${inv.id==='company'?'bg-purple-700/10 border-purple-700/30':'bg-white/5 border-white/10'}`}>
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${inv.id==='company'?'bg-purple-700/20 border border-purple-700/40':'bg-blue-700/20 border border-blue-700/30'}`}>
-                {inv.id==='company'?<Building2 className="w-4 h-4 text-purple-400"/>:<User className="w-4 h-4 text-blue-400"/>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-xs font-bold text-white truncate">{inv.name}</p>
-                  {inv.id==='company'
-                    ? <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold border flex-shrink-0 bg-purple-700/20 border-purple-700/30 text-purple-400">Company</span>
-                    : <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-bold border flex-shrink-0 ${getEntryTag(inv).color}`}>{getEntryTag(inv).label}</span>
-                  }
-                </div>
-                <p className="text-[10px] text-white/40">{fmt(inv.capital)} · {inv.stake}%</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-xs font-black text-emerald-400 font-mono">{fmt(inv.profit)}</p>
-                <Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/>
-              </div>
+            <button key={inv.id} onClick={()=>setSel(inv)} className="w-full flex items-center gap-3 p-3.5 bg-white/5 border border-white/10 rounded-xl hover:border-white/20 transition-all text-left">
+              <div className="w-9 h-9 rounded-full bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><User className="w-4 h-4 text-blue-400"/></div>
+              <div className="flex-1 min-w-0"><p className="text-xs font-bold text-white truncate">{inv.name}</p><p className="text-[10px] text-white/40">{fmt(inv.capital)} · {inv.stake}%</p></div>
+              <div className="text-right flex-shrink-0"><p className="text-xs font-black text-emerald-400 font-mono">{fmt(inv.profit)}</p><Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/></div>
             </button>
           )
         ))}
@@ -3431,179 +2323,43 @@ const MembersScreen=({investors,setInvestors})=>{
 };
 
 // ── APPROVALS ─────────────────────────────────────────────────────────────────
-const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInvestors,cycles,setCycles})=>{
+const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots})=>{
   const [payFilter,setPayFilter]=useState("all");
   const [wdFilter,setWdFilter]=useState("all");
   const [rejectModal,setRejectModal]=useState(null);
   const [rejectReason,setRejectReason]=useState("");
   const [receiptModal,setReceiptModal]=useState(null);
 
-  // Bulk selection state
-  const [selectedPays,setSelectedPays]=useState(new Set());
-  const [selectedWds,setSelectedWds]=useState(new Set());
-  const [bulkRejectModal,setBulkRejectModal]=useState(null); // 'pays' | 'wds'
-  const [bulkRejectReason,setBulkRejectReason]=useState("");
-  const [bulkLoading,setBulkLoading]=useState(false);
+  const updatePay=(id,updates)=>setPays(ps=>ps.map(p=>p.id===id?{...p,...updates}:p));
+  const updateWd=(id,updates)=>setWds(ws=>ws.map(w=>w.id===id?{...w,...updates}:w));
 
-  // Refresh live data from Supabase every time this screen opens
-  useEffect(()=>{
-    api.getPayments().then(data=>{ if(data) setPays(data); });
-    api.getWithdrawals().then(data=>{ if(data) setWds(data); });
-  },[]);
+  const approvePay=id=>updatePay(id,{status:"approved"});
 
-  const updatePay=async (id,updates)=>{
-    setPays(ps=>ps.map(p=>p.id===id?{...p,...updates}:p));
-    try {
-      const dbUpdates={};
-      if('status' in updates) dbUpdates.status=updates.status;
-      if('rejectReason' in updates) dbUpdates.reject_reason=updates.rejectReason;
-      await supabase.from('payments').update(dbUpdates).eq('id',id);
-    } catch {}
-  };
-  const updateWd=async (id,updates)=>{
-    setWds(ws=>ws.map(w=>w.id===id?{...w,...updates}:w));
-    try {
-      const dbUpdates={};
-      if('status' in updates) dbUpdates.status=updates.status;
-      if('adminNote' in updates) dbUpdates.admin_note=updates.adminNote;
-      await supabase.from('withdrawals').update(dbUpdates).eq('id',id);
-    } catch {}
-  };
-
-  const approvePay=async (id)=>{
-    await updatePay(id,{status:"approved"});
-    try {
-      const { data:payData, error:payErr } = await supabase
-        .from('payments').select('*').eq('id',id).single();
-      if(payErr || !payData){ console.error('approvePay: payment fetch failed',payErr); return; }
-
-      const invId=payData.investor_id;
-      const amount=Number(payData.amount);
-
-      // Handle slot purchase — transfer stake from seller to buyer
-      if(payData.type==='slot_purchase'&&payData.slot_id){
-        const {data:slot}=await supabase.from('market_slots').select('*').eq('slot_id',payData.slot_id).single();
-        if(slot){
-          const sellerCapital=Number(slot.capital||0);
-          const cycPool=INVESTOR_CYCLE.pool||100400000;
-
-          // Deduct from seller
-          if(slot.seller_investor_id){
-            const {data:seller}=await supabase.from('investors').select('capital,stake').eq('id',slot.seller_investor_id).single();
-            if(seller){
-              const newSellerCap=Math.max(0,Number(seller.capital||0)-sellerCapital);
-              const newSellerStake=Number(((newSellerCap/cycPool)*100).toFixed(3));
-              await supabase.from('investors').update({capital:newSellerCap,stake:newSellerStake,profit_withdrawn:false}).eq('id',slot.seller_investor_id);
-              setInvestors(is=>is.map(i=>i.id===slot.seller_investor_id?{...i,capital:newSellerCap,stake:newSellerStake,profit_withdrawn:false}:i));
-            }
-          }
-
-          // Add to buyer
-          if(invId){
-            const {data:buyer}=await supabase.from('investors').select('capital,stake').eq('id',invId).single();
-            if(buyer){
-              const newBuyerCap=Number(buyer.capital||0)+sellerCapital;
-              const newBuyerStake=Number(((newBuyerCap/cycPool)*100).toFixed(3));
-              await supabase.from('investors').update({capital:newBuyerCap,stake:newBuyerStake}).eq('id',invId);
-              setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newBuyerCap,stake:newBuyerStake}:i));
-            }
-          }
-
-          // Mark slot as sold
-          await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slot.slot_id);
-          setSlots(ss=>ss.map(s=>s.slot_id===slot.slot_id?{...s,sold:true,lock:true}:s));
-        }
-        return;
-      }
-
-      // Handle new investment — add capital to buyer
-      if(payData.type==='new_investment'&&invId&&amount){
-        const {data:invData}=await supabase.from('investors').select('capital,stake').eq('id',invId).single();
-        if(!invData) return;
-        const cycPool=INVESTOR_NEXT_CYCLE.pool||100400000;
-        const newCapital=Number(invData.capital||0)+amount;
-        const newStake=Number(((newCapital/cycPool)*100).toFixed(3));
-        await supabase.from('investors').update({capital:newCapital,stake:newStake}).eq('id',invId);
-        setInvestors(is=>is.map(i=>i.id===invId?{...i,capital:newCapital,stake:newStake}:i));
-        const {data:cycData}=await supabase.from('cycles').select('id,pool').eq('name',payData.cycle_name).maybeSingle();
-        if(cycData){
-          const newPool=Number(cycData.pool||0)+amount;
-          await supabase.from('cycles').update({pool:newPool}).eq('id',cycData.id);
-          setCycles(cs=>cs.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
-          updateInvestorCycles(cycles.map(c=>c.id===cycData.id?{...c,pool:newPool}:c));
-        }
-      }
-    } catch(e){ console.error('approvePay error:',e); }
-  };
-
-  const approveWd=async (id)=>{
+  const approveWd=id=>{
     const wd=wds.find(w=>w.id===id);
-    await updateWd(id,{status:"approved"});
-    if(wd?.investorId){
-      try {
-        // Profit-only withdrawal — reset profit_withdrawn flag, profit stays in DB
-        // Capital is handled through market slot approval (approvePay)
-        await supabase.from('investors').update({
-          profit_withdrawn:false,
-          profit:0,
-        }).eq('id',wd.investorId);
-        setInvestors(is=>is.map(i=>i.id===wd.investorId?{...i,profit_withdrawn:false,profit:0}:i));
-      } catch {}
+    updateWd(id,{status:"approved"});
+    if(wd&&wd.capital>0){
+      const inv=ALL_INVESTORS.find(i=>i.id===wd.investorId);
+      setSlots(ss=>[...ss,{
+        slot_id:`slt-${id}`,
+        seller:wd.investor,
+        cycle:INVESTOR_CYCLE.name,
+        capital:wd.capital,
+        stake_pct:Number(((wd.capital/INVESTOR_CYCLE.pool)*100).toFixed(3)),
+        sale_amount:wd.capital,
+        days_in_fund:inv?Math.max(0,Math.ceil((new Date()-new Date(inv.investment_date||INVESTOR_CYCLE.start))/(1000*60*60*24))):0,
+        expected_rate:INVESTOR_CYCLE.profit_rate,
+        lock:false,sold:false,is_company:false,
+      }]);
     }
   };
+
   const adminPayWd=id=>updateWd(id,{status:"approved",adminNote:"Admin-initiated payment"});
 
-  const confirmReject=async ()=>{
-    if(rejectModal.type==="pay") updatePay(rejectModal.id,{status:"rejected",rejectReason});
-    else {
-      const wd=wds.find(w=>w.id===rejectModal.id);
-      if(wd?.status==="pending"){
-        // Only reset flag - capital was NOT deducted at submission so nothing to restore
-        try {
-          await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
-          // Clear any market slot if one was created
-          await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
-        } catch {}
-      }
-      await updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
-    }
+  const confirmReject=()=>{
+    if(rejectModal.type==="pay")updatePay(rejectModal.id,{status:"rejected",rejectReason});
+    else updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
     setRejectModal(null);setRejectReason("");
-  };
-
-  // Bulk handlers
-  const bulkApprovePays=async()=>{
-    setBulkLoading(true);
-    for(const id of selectedPays){ await approvePay(id); }
-    setSelectedPays(new Set());setBulkLoading(false);
-  };
-  const bulkRejectPays=async()=>{
-    setBulkLoading(true);
-    for(const id of selectedPays){ await updatePay(id,{status:"rejected",rejectReason:bulkRejectReason}); }
-    setSelectedPays(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
-  };
-  const bulkApproveWds=async()=>{
-    setBulkLoading(true);
-    for(const id of selectedWds){ await approveWd(id); }
-    setSelectedWds(new Set());setBulkLoading(false);
-  };
-  const bulkRejectWds=async()=>{
-    setBulkLoading(true);
-    for(const id of selectedWds){
-      const wd=wds.find(w=>w.id===id);
-      if(wd?.status==="pending"){
-        try {
-          await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
-          await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
-        } catch {}
-      }
-      await updateWd(id,{status:"rejected",adminNote:bulkRejectReason});
-    }
-    setSelectedWds(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
-  };
-  const bulkPayWds=async()=>{
-    setBulkLoading(true);
-    for(const id of selectedWds){ await adminPayWd(id); }
-    setSelectedWds(new Set());setBulkLoading(false);
   };
 
   const handleReceiptUpload=(id,e)=>{
@@ -3639,48 +2395,11 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       <div className="space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Payment Confirmations</p>
         <FilterBar value={payFilter} onChange={setPayFilter}/>
-
-        {/* Bulk action bar for payments */}
-        {filteredPays.some(p=>p.status==="pending")&&(
-          <div className="flex items-center gap-2 p-2 bg-white/5 border border-white/10 rounded-xl">
-            <button onClick={()=>{
-              const pendingIds=filteredPays.filter(p=>p.status==="pending").map(p=>p.id);
-              const allSelected=pendingIds.every(id=>selectedPays.has(id));
-              if(allSelected){setSelectedPays(new Set());}
-              else{setSelectedPays(new Set(pendingIds));}
-            }} className="text-[10px] text-blue-400 font-bold whitespace-nowrap">
-              {filteredPays.filter(p=>p.status==="pending").every(p=>selectedPays.has(p.id))?"Deselect All":"Select All"}
-            </button>
-            {selectedPays.size>0&&(
-              <>
-                <span className="text-[10px] text-white/30 flex-1">{selectedPays.size} selected</span>
-                <button onClick={bulkApprovePays} disabled={bulkLoading} className="px-2.5 py-1 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-lg text-[10px] font-bold">
-                  {bulkLoading?"…":"Approve All"}
-                </button>
-                <button onClick={()=>{setBulkRejectModal("pays");setBulkRejectReason("");}} className="px-2.5 py-1 bg-red-700/20 border border-red-700/30 text-red-400 rounded-lg text-[10px] font-bold">Reject All</button>
-              </>
-            )}
-          </div>
-        )}
-
         {filteredPays.map(p=>(
           <Card key={p.id} className="space-y-3">
-            <div className="flex items-start gap-2">
-              {p.status==="pending"&&(
-                <button onClick={()=>setSelectedPays(s=>{const n=new Set(s);n.has(p.id)?n.delete(p.id):n.add(p.id);return n;})} className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${selectedPays.has(p.id)?"bg-blue-600 border-blue-600":"border-white/30"}`}>
-                  {selectedPays.has(p.id)&&<CheckCircle className="w-3 h-3 text-white"/>}
-                </button>
-              )}
-              <div className="flex items-start justify-between flex-1">
-                <div>
-                  <p className="text-sm font-bold text-white">{p.investor}</p>
-                  <p className="text-[10px] text-white/40 capitalize">{p.type.replace(/_/g," ")} · {p.cycle}</p>
-                  {p.type==="slot_purchase"&&p.seller&&<p className="text-[10px] text-amber-400 font-semibold mt-0.5">Seller: {p.seller}</p>}
-                  {p.type==="slot_purchase"&&p.slot_id&&<p className="text-[10px] text-white/30">Ref: {p.slot_id.slice(-8).toUpperCase()}</p>}
-                  <p className="text-[10px] text-white/30">{p.date}</p>
-                </div>
-                <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(p.amount)}</p><StatusPill status={p.status}/></div>
-              </div>
+            <div className="flex items-start justify-between">
+              <div><p className="text-sm font-bold text-white">{p.investor}</p><p className="text-[10px] text-white/40 capitalize">{p.type.replace("_"," ")} · {p.cycle}</p><p className="text-[10px] text-white/30">{p.date}</p></div>
+              <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(p.amount)}</p><StatusPill status={p.status}/></div>
             </div>
 
             {/* Receipt upload / view */}
@@ -3714,44 +2433,11 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       <div className="space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">Withdrawal Requests</p>
         <FilterBar value={wdFilter} onChange={setWdFilter}/>
-
-        {/* Bulk action bar for withdrawals */}
-        {filteredWds.some(w=>w.status==="pending")&&(
-          <div className="flex items-center gap-2 p-2 bg-white/5 border border-white/10 rounded-xl">
-            <button onClick={()=>{
-              const pendingIds=filteredWds.filter(w=>w.status==="pending").map(w=>w.id);
-              const allSelected=pendingIds.every(id=>selectedWds.has(id));
-              if(allSelected){setSelectedWds(new Set());}
-              else{setSelectedWds(new Set(pendingIds));}
-            }} className="text-[10px] text-blue-400 font-bold whitespace-nowrap">
-              {filteredWds.filter(w=>w.status==="pending").every(w=>selectedWds.has(w.id))?"Deselect All":"Select All"}
-            </button>
-            {selectedWds.size>0&&(
-              <>
-                <span className="text-[10px] text-white/30 flex-1">{selectedWds.size} selected</span>
-                <button onClick={bulkApproveWds} disabled={bulkLoading} className="px-2.5 py-1 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-lg text-[10px] font-bold">
-                  {bulkLoading?"…":"Approve All"}
-                </button>
-                <button onClick={bulkPayWds} disabled={bulkLoading} className="px-2.5 py-1 bg-blue-700/20 border border-blue-700/30 text-blue-400 rounded-lg text-[10px] font-bold">
-                  {bulkLoading?"…":"Mark Paid"}
-                </button>
-                <button onClick={()=>{setBulkRejectModal("wds");setBulkRejectReason("");}} className="px-2.5 py-1 bg-red-700/20 border border-red-700/30 text-red-400 rounded-lg text-[10px] font-bold">Reject All</button>
-              </>
-            )}
-          </div>
-        )}
-
         {filteredWds.map(w=>{
           const inv=ALL_INVESTORS.find(i=>i.id===w.investorId);
           return (
             <Card key={w.id} className="space-y-3">
-              <div className="flex items-start gap-2">
-                {w.status==="pending"&&(
-                  <button onClick={()=>setSelectedWds(s=>{const n=new Set(s);n.has(w.id)?n.delete(w.id):n.add(w.id);return n;})} className={`w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${selectedWds.has(w.id)?"bg-blue-600 border-blue-600":"border-white/30"}`}>
-                    {selectedWds.has(w.id)&&<CheckCircle className="w-3 h-3 text-white"/>}
-                  </button>
-                )}
-              <div className="flex items-start justify-between flex-1">
+              <div className="flex items-start justify-between">
                 <div><p className="text-sm font-bold text-white">{w.investor}</p><p className="text-[10px] text-white/40 capitalize">{w.type.replace(/_/g," ")} · {w.date}</p></div>
                 <div className="text-right"><p className="text-base font-black text-white font-mono">{fmt(w.amount)}</p><StatusPill status={w.status}/></div>
               </div>
@@ -3774,11 +2460,10 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
                     <button onClick={()=>approveWd(w.id)} className="flex-1 py-2.5 bg-emerald-700/15 border border-emerald-700/30 text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-700/25">Approve & Pay</button>
                   </div>
                   <button onClick={()=>adminPayWd(w.id)} className="w-full py-2.5 bg-purple-700/15 border border-purple-700/30 text-purple-400 rounded-xl text-xs font-bold hover:bg-purple-700/25 flex items-center justify-center gap-1.5">
-                    <Send className="w-3.5 h-3.5"/>Mark as Paid (money sent manually)
+                    <Send className="w-3.5 h-3.5"/>Admin-Initiated Payment (send & mark paid)
                   </button>
                 </div>
               )}
-              </div>
             </Card>
           );
         })}
@@ -3812,22 +2497,6 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
           </div>
         </div>
       )}
-
-      {/* Bulk reject modal */}
-      {bulkRejectModal&&(
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center p-4">
-          <div className="bg-[#0d1f3c] border border-white/10 rounded-2xl p-5 w-full max-w-sm space-y-4">
-            <p className="text-sm font-black text-white">Reject {bulkRejectModal==="pays"?selectedPays.size:selectedWds.size} {bulkRejectModal==="pays"?"payment":"withdrawal"}(s)</p>
-            <textarea value={bulkRejectReason} onChange={e=>setBulkRejectReason(e.target.value)} placeholder="Reason for rejection (optional)" rows={3} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none resize-none"/>
-            <div className="flex gap-3">
-              <button onClick={()=>setBulkRejectModal(null)} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white/60 font-bold rounded-xl text-sm">Cancel</button>
-              <button onClick={bulkRejectModal==="pays"?bulkRejectPays:bulkRejectWds} disabled={bulkLoading} className="flex-1 py-2.5 bg-red-700 hover:bg-red-600 text-white font-bold rounded-xl text-sm">
-                {bulkLoading?"…":"Confirm Reject"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -3849,24 +2518,7 @@ const ThresholdsScreen=({nav,thresholds,setThresholds})=>{
   const hasOverlap=sorted.some((b,idx)=>idx>0&&sorted[idx-1].max!==null&&b.min<=sorted[idx-1].max);
   const hasGap=sorted.some((b,idx)=>idx>0&&sorted[idx-1].max!==null&&b.min>sorted[idx-1].max+1);
 
-  const save=async ()=>{
-    setThresholds(sorted);
-    setLiveThresholds(sorted);
-    setSaved(true);
-    setTimeout(()=>nav(VIEWS.SETTINGS),1000);
-    try {
-      // Delete all existing bands and reinsert with clean sequential ids
-      // (avoids integer overflow from Date.now()-based ids on newly added bands)
-      await supabase.from('thresholds').delete().gte('id',0);
-      const rows=sorted.map((t,idx)=>({
-        id: idx+1,
-        min_amount: t.min,
-        max_amount: t.max,
-        settlement_days: t.days,
-      }));
-      await supabase.from('thresholds').insert(rows);
-    } catch {}
-  };
+  const save=()=>{setThresholds(sorted);setSaved(true);setTimeout(()=>nav(VIEWS.SETTINGS),1000);};
 
   return (
     <div className="space-y-4 pb-24">
@@ -3917,67 +2569,17 @@ const ThresholdsScreen=({nav,thresholds,setThresholds})=>{
 const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
   const [cycleId,setCycleId]=useState(cycles[0]?.id||"");
   const [month,setMonth]=useState("");
-  const [uploading,setUploading]=useState(false);
-  const [uploadErr,setUploadErr]=useState("");
 
-  // Load real PDFs from Supabase on mount so they survive refresh
-  useEffect(()=>{
-    supabase.from('performance_pdfs').select('*').order('uploaded_date',{ascending:false})
-      .then(({data})=>{
-        if(data&&data.length>0){
-          setPdfs(data.map(p=>({
-            id:p.id,
-            cycleId:p.cycle_id,
-            cycleName:p.cycle_name,
-            month:p.month_label,
-            uploadedDate:p.uploaded_date,
-            fileName:p.file_name,
-            fileData:p.file_url,
-          })));
-        }
-      }).catch(()=>{});
-  },[]);
-
-  const handleUpload=async (e)=>{
+  const handleUpload=e=>{
     const file=e.target.files?.[0];
     if(!file)return;
-    setUploading(true);setUploadErr("");
-    const cycle=cycles.find(c=>c.id===cycleId);
-    const pdfId=`pdf-${Date.now()}`;
-    const fileName=file.name;
-    try {
-      // Upload actual file bytes to Supabase Storage
-      const storagePath=`${pdfId}-${fileName}`;
-      const { error: uploadError } = await supabase.storage
-        .from('performance-pdfs')
-        .upload(storagePath, file);
-      if (uploadError) {
-        setUploadErr("Upload failed. The storage bucket may not be set up yet — check with your developer.");
-        setUploading(false);
-        return;
-      }
-      const { data: urlData } = supabase.storage
-        .from('performance-pdfs')
-        .getPublicUrl(storagePath);
-      const fileUrl=urlData?.publicUrl||null;
-      const newPdf={id:pdfId,cycleId,cycleName:cycle?.name||"—",month,uploadedDate:new Date().toISOString().slice(0,10),fileName,fileData:fileUrl};
-      setPdfs(ps=>[...ps,newPdf]);
-      // Save record to Supabase
-      await supabase.from('performance_pdfs').insert({
-        id:pdfId,
-        cycle_id:cycleId,
-        cycle_name:cycle?.name||"—",
-        month_label:month,
-        uploaded_date:new Date().toISOString().slice(0,10),
-        file_name:fileName,
-        file_url:fileUrl,
-        note:null,
-      });
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const cycle=cycles.find(c=>c.id===cycleId);
+      setPdfs(ps=>[...ps,{id:`pdf-${Date.now()}`,cycleId,cycleName:cycle?.name||"—",month,uploadedDate:new Date().toISOString().slice(0,10),fileName:file.name,fileData:ev.target.result}]);
       setMonth("");
-    } catch {
-      setUploadErr("Something went wrong. Check your connection and try again.");
-    }
-    setUploading(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -3997,14 +2599,12 @@ const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
           <input type="text" value={month} onChange={e=>setMonth(e.target.value)} placeholder='e.g. "June 2026"' className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-blue-600/30"/>
         </div>
         {!month.trim()&&<p className="text-xs text-amber-400">Enter a month / period label above to enable the upload button.</p>}
-        {uploadErr&&<Err msg={uploadErr}/>}
-        {uploading&&<p className="text-xs text-blue-400 flex items-center gap-1.5"><Loader className="w-3.5 h-3.5 animate-spin"/>Uploading…</p>}
-        {!uploading&&month.trim()
+        {month.trim()
           ?<label className="w-full py-2.5 bg-white/5 border border-dashed border-white/20 text-white/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer hover:border-white/40 hover:text-white/60">
               <Upload className="w-3.5 h-3.5"/>Choose PDF File
               <input type="file" accept="application/pdf" className="hidden" onChange={handleUpload}/>
             </label>
-          :!uploading&&<div className="w-full py-2.5 bg-white/5 border border-dashed border-white/10 text-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-not-allowed">
+          :<div className="w-full py-2.5 bg-white/5 border border-dashed border-white/10 text-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-not-allowed">
               <Upload className="w-3.5 h-3.5"/>Choose PDF File
             </div>
         }
@@ -4025,7 +2625,7 @@ const PerformancePDFScreen=({nav,cycles,pdfs,setPdfs})=>{
 };
 
 // ── PROFIT CSV UPLOAD ──────────────────────────────────────────────────────────
-const ProfitCSVScreen=({nav,cycles,investors:investorsProp,onApply})=>{
+const ProfitCSVScreen=({nav,cycles,investors,onApply})=>{
   const [cycleId,setCycleId]=useState(cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"");
   const [totalProfit,setTotalProfit]=useState("");
   const [parsed,setParsed]=useState(null);
@@ -4033,16 +2633,9 @@ const ProfitCSVScreen=({nav,cycles,investors:investorsProp,onApply})=>{
   const [applied,setApplied]=useState(false);
   const [showTemplate,setShowTemplate]=useState(false);
   const [copied,setCopied]=useState(false);
-  const [investors,setInvestors]=useState(investorsProp?.length>0 ? investorsProp : ALL_INVESTORS);
-
-  // Load investors fresh from Supabase on mount so CSV matching always works
-  useEffect(()=>{
-    api.getAllInvestors().then(data=>{ if(data&&data.length>0) setInvestors(data); });
-  },[]);
 
   const cycle=cycles.find(c=>c.id===cycleId);
-  // Use all active investors since cycle.member_ids is not reliably populated
-  const members=investors.filter(i=>i.status==="active");
+  const members=cycle?investors.filter(i=>(cycle.member_ids||[]).includes(i.id)&&i.status==="active"):[];
   const totalProfitNum=parseAmt(totalProfit);
   const templateCSV=cycle?buildTemplateCSV(members):"";
 
@@ -4181,42 +2774,13 @@ const TNCScreen=({nav,draft,setDraft,history,setHistory})=>{
 
   const canPublish=draft.shariahReviewed&&draft.legalReviewed;
 
-  const publish=async ()=>{
+  const publish=()=>{
     if(!canPublish)return;
-    const publishedDate=new Date().toISOString().slice(0,10);
-    setHistory(h=>[...h,{version:draft.pendingVersion,publishedDate,clauses:draft.clauses,shariahReviewed:draft.shariahReviewed,legalReviewed:draft.legalReviewed}]);
+    setHistory(h=>[...h,{version:draft.pendingVersion,publishedDate:new Date().toISOString().slice(0,10),clauses:draft.clauses,shariahReviewed:draft.shariahReviewed,legalReviewed:draft.legalReviewed}]);
     const [major,minor]=draft.pendingVersion.split(".").map(Number);
-    const nextVersion=`${major}.${minor+1}`;
-    setDraft({pendingVersion:nextVersion,clauses:draft.clauses,shariahReviewed:false,legalReviewed:false});
+    setDraft({pendingVersion:`${major}.${minor+1}`,clauses:draft.clauses,shariahReviewed:false,legalReviewed:false});
     setPublished(true);
     setTimeout(()=>setPublished(false),3000);
-    try {
-      if(draft._dbId){
-        // Mark the existing draft row as published
-        await supabase.from('tnc_versions').update({
-          is_draft:false,
-          published_date:publishedDate,
-        }).eq('id',draft._dbId);
-      } else {
-        // No tracked draft row — insert the published version directly
-        await supabase.from('tnc_versions').insert({
-          version:draft.pendingVersion,
-          published_date:publishedDate,
-          clauses:draft.clauses,
-          shariah_reviewed:draft.shariahReviewed,
-          legal_reviewed:draft.legalReviewed,
-          is_draft:false,
-        });
-      }
-      // Create the next draft row
-      await supabase.from('tnc_versions').insert({
-        version:nextVersion,
-        clauses:draft.clauses,
-        shariah_reviewed:false,
-        legal_reviewed:false,
-        is_draft:true,
-      });
-    } catch {}
   };
 
   return (
@@ -4389,7 +2953,7 @@ const SettingsScreen=({nav})=>{
 
 // ── BOTTOM NAV ────────────────────────────────────────────────────────────────
 const BottomNav=({active,onChange,pendingCount})=>{
-  const items=[{id:VIEWS.DASH,icon:LayoutDashboard,label:"Dashboard"},{id:VIEWS.CYCLES,icon:RefreshCw,label:"Cycles"},{id:VIEWS.MEMBERS,icon:Users,label:"Members"},{id:VIEWS.APPROVALS,icon:CheckSquare,label:"Approvals"},{id:VIEWS.MARKET,icon:ArrowRightLeft,label:"Market"},{id:VIEWS.SETTINGS,icon:Settings,label:"Settings"}];
+  const items=[{id:VIEWS.DASH,icon:LayoutDashboard,label:"Dashboard"},{id:VIEWS.CYCLES,icon:RefreshCw,label:"Cycles"},{id:VIEWS.MEMBERS,icon:Users,label:"Members"},{id:VIEWS.APPROVALS,icon:CheckSquare,label:"Approvals"},{id:VIEWS.SETTINGS,icon:Settings,label:"Settings"}];
   const cycleViews=[VIEWS.CREATE_CYCLE,VIEWS.EDIT_CYCLE,VIEWS.ADD_MEMBERS];
   const settingsViews=[VIEWS.PROFIT_CSV,VIEWS.PERFORMANCE_PDF,VIEWS.THRESHOLDS,VIEWS.TNC,VIEWS.ANALYTICS];
   const activeTab=cycleViews.includes(active)?VIEWS.CYCLES:settingsViews.includes(active)?VIEWS.SETTINGS:active;
@@ -4410,318 +2974,24 @@ const BottomNav=({active,onChange,pendingCount})=>{
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 
 // ── Admin Panel ──────────────────────────────────────────────────────────────
-// ── Admin Market Screen ───────────────────────────────────────────────────────
-const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPays})=>{
-  const [tab,setTab]=useState("active");
-  const [showList,setShowList]=useState(false);
-  const [cycles,setCyclesLocal]=useState(cyclesProp?.length>0?cyclesProp:CYCLES_DATA);
-  const [purchasing,setPurchasing]=useState(null);
-
-  // Load cycles fresh from Supabase on mount
-  useEffect(()=>{
-    api.getCycles().then(data=>{ if(data&&data.length>0) setCyclesLocal(data); });
-  },[]);
-  const [showBuy,setShowBuy]=useState(false);
-  const [selectedSlot,setSelectedSlot]=useState(null);
-  const [listForm,setListForm]=useState({investorId:"company",cycleId:cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"",capital:""});
-  const [listErr,setListErr]=useState("");
-  const [listLoading,setListLoading]=useState(false);
-  const [listDone,setListDone]=useState(false);
-
-  useEffect(()=>{
-    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
-  },[]);
-
-  const active=slots.filter(s=>!s.sold&&!s.lock);
-  const sold=slots.filter(s=>s.sold||s.lock);
-
-  const handleRemove=async(slotId)=>{
-    try {
-      await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slotId);
-      setSlots(ss=>ss.filter(s=>s.slot_id!==slotId));
-    } catch {}
-  };
-
-  const handleList=async()=>{
-    setListErr("");
-    const cap=parseAmt(listForm.capital.replace(/,/g,""));
-    if(!cap||cap<=0){setListErr("Enter a valid capital amount.");return;}
-    const cycle=cycles.find(c=>c.id===listForm.cycleId)||cycles.find(c=>c.status==="open")||cycles[0];
-    const isCompany=listForm.investorId==="company";
-    // Company listing cannot exceed company portfolio for selected cycle
-    if(isCompany){
-      const companyPortfolio=companyCapital(cycle);
-      if(cap>companyPortfolio){setListErr(`Company listing cannot exceed portfolio of ${fmt(companyPortfolio)} for this cycle.`);return;}
-    } else {
-      // Investor listing cannot exceed their capital
-      const inv=investors.find(i=>i.id===listForm.investorId);
-      if(inv&&cap>inv.capital){setListErr(`Cannot exceed investor capital of ${fmt(inv.capital)}.`);return;}
-    }
-    setListLoading(true);
-    const slotId=`slt-${Date.now()}`;
-    const inv=isCompany?null:investors.find(i=>i.id===listForm.investorId);
-    const seller=isCompany?"Gigabundle Ltd (Company)":(inv?.name||"Admin");
-    try {
-      await supabase.from('market_slots').insert({
-        slot_id:slotId,
-        seller,
-        seller_investor_id:isCompany?null:listForm.investorId,
-        cycle_name:cycle?.name||"",
-        capital:cap,
-        stake_pct:Number(((cap/(cycle?.pool||101400000))*100).toFixed(3)),
-        sale_amount:cap,
-        days_in_fund:0,
-        expected_rate:cycle?.profit_rate||null,
-        lock:false,sold:false,
-        is_company:isCompany,
-      });
-      setSlots(ss=>[...ss,{slot_id:slotId,seller,cycle:cycle?.name,capital:cap,sale_amount:cap,sold:false,lock:false,is_company:isCompany}]);
-      setListDone(true);setListForm({investorId:"company",cycleId:cycles.find(c=>c.status==="open")?.id||cycles[0]?.id||"",capital:""});
-      setTimeout(()=>{setListDone(false);setShowList(false);},2500);
-    } catch { setListErr("Failed to list slot. Try again."); }
-    setListLoading(false);
-  };
-
-  const handleAdminConfirm=async (slotId,amt)=>{
-    const slot=slots.find(s=>s.slot_id===slotId);
-    const payId=`pay-${Date.now()}`;
-    const amount=slot?.sale_amount||amt;
-    const cycleName=slot?.cycle||slot?.cycle_name||INVESTOR_CYCLE.name;
-    const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-
-    // Lock slot — not sold until admin approves payment
-    setSlots(ss=>ss.map(s=>s.slot_id===slotId?{...s,lock:true}:s));
-    setPays(ps=>[...ps,{
-      id:payId,type:"slot_purchase",
-      investor:"Gigabundle Ltd (Company)",investorId:"company",
-      amount,cycle:cycleName,date:dateStr,status:"pending",
-      slot_id:slotId,seller:slot?.seller||"",receipt:null,rejectReason:"",
-    }]);
-
-    await api.submitPayment({
-      id:payId,type:"slot_purchase",
-      investor_name:"Gigabundle Ltd (Company)",investor_id:"company",
-      amount,cycle_name:cycleName,date:dateStr,status:"pending",
-      slot_id:slotId,seller_name:slot?.seller||"",receipt:null,reject_reason:"",
-    });
-    try { await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId); } catch {}
-    setPurchasing(null);
-  };
-
-  return(
-    <div className="space-y-5 pb-24">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black text-white">Secondary Market</h2>
-        <div className="flex gap-2">
-          <button onClick={()=>{setShowBuy(false);setShowList(s=>!s);}} className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold rounded-lg">+ List Slot</button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
-        {[{id:"active",label:`Active (${active.length})`},{id:"sold",label:`Sold (${sold.length})`}].map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${tab===t.id?"bg-blue-700 text-white":"text-white/40 hover:text-white/60"}`}>{t.label}</button>
-        ))}
-      </div>
-
-      {/* List Slot Form */}
-      {showList&&(
-        <Card className="space-y-3">
-          <Label>List a Market Slot</Label>
-          <div>
-            <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Listing As</p>
-            <select value={listForm.investorId} onChange={e=>setListForm(f=>({...f,investorId:e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none">
-              <option value="company" className="bg-slate-900">Gigabundle Ltd (Company)</option>
-              {investors.filter(i=>i.status==="active").map(i=>(
-                <option key={i.id} value={i.id} className="bg-slate-900">{i.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">From Cycle</p>
-            <select value={listForm.cycleId||""} onChange={e=>setListForm(f=>({...f,cycleId:e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white focus:outline-none">
-              {cycles.length===0&&<option value="" className="bg-slate-900">Loading cycles…</option>}
-              {cycles.filter(c=>c.status!=="archived").map(c=>(
-                <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
-              ))}
-            </select>
-          </div>
-          {(()=>{
-            const isCompany=listForm.investorId==="company";
-            const cyc=cycles.find(c=>c.id===listForm.cycleId);
-            const companyPortfolio=cyc?companyCapital(cyc):0;
-            const selInv=isCompany?null:investors.find(i=>i.id===listForm.investorId);
-            const walletLimit=isCompany?companyPortfolio:(selInv?.capital||0);
-            return(
-              <>
-                {!isCompany&&selInv&&(
-                  <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Investor Wallet</p>
-                    <p className="text-sm font-black text-white font-mono">{fmt(selInv.capital)}</p>
-                  </div>
-                )}
-                {isCompany&&cyc&&(
-                  <p className="text-[11px] text-purple-300">Company portfolio for this cycle: <strong>{fmt(companyPortfolio)}</strong></p>
-                )}
-                <div>
-                  <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Capital Amount (₦)</p>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={listForm.capital?Number(listForm.capital.replace(/,/g,"")).toLocaleString():""}
-                    onChange={e=>{
-                      const raw=e.target.value.replace(/,/g,"").replace(/[^0-9]/g,"");
-                      setListForm(f=>({...f,capital:raw}));
-                    }}
-                    placeholder="e.g. 5,000,000"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-3 text-sm text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-blue-600/30"
-                  />
-                  {walletLimit>0&&listForm.capital&&Number(listForm.capital)>walletLimit&&(
-                    <p className="text-[11px] text-red-400 mt-1">Exceeds limit of {fmt(walletLimit)}</p>
-                  )}
-                </div>
-              </>
-            );
-          })()}
-          {listDone
-            ? <p className="text-sm text-emerald-400 font-semibold flex items-center gap-2"><CheckCircle className="w-4 h-4"/>Slot listed successfully.</p>
-            : <button onClick={handleList} disabled={listLoading} className={`w-full py-2.5 font-bold rounded-xl text-sm ${listLoading?"bg-white/10 text-white/40":"bg-blue-700 hover:bg-blue-600 text-white"}`}>
-                {listLoading?<span className="flex items-center justify-center gap-2"><Loader className="w-4 h-4 animate-spin"/>Listing…</span>:"List on Market"}
-              </button>
-          }
-        </Card>
-      )}
-
-      {/* Slot cards */}
-      {tab==="active"&&(
-        active.length===0
-          ? <Card className="text-center py-6 text-white/30 text-sm">No active listings.</Card>
-          : <div className="space-y-3">
-              {active.map(s=>(
-                <Card key={s.slot_id} className="space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white truncate">{s.seller}</p>
-                      <p className="text-[10px] text-white/40">{s.cycle} · {s.is_company&&<span className="text-purple-400">Company slot</span>}</p>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-700/20 border border-blue-700/30 text-blue-400">Listed</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[["Capital",fmt(s.capital)],["Sale Price",fmt(s.sale_amount)]].map(([l,v])=>(
-                      <div key={l} className="bg-white/5 rounded-xl p-2.5 text-center"><p className="text-[9px] text-white/30 uppercase font-bold">{l}</p><p className="text-xs font-black text-white mt-0.5">{v}</p></div>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={()=>setPurchasing(s)} className="flex-1 py-2 bg-emerald-700/20 border border-emerald-700/30 text-emerald-400 rounded-xl text-xs font-bold hover:bg-emerald-700/30">Buy (Company)</button>
-                    <button onClick={()=>handleRemove(s.slot_id)} className="flex-1 py-2 bg-red-700/20 border border-red-700/30 text-red-400 rounded-xl text-xs font-bold hover:bg-red-700/30">Remove</button>
-                  </div>
-                </Card>
-              ))}
-            </div>
-      )}
-
-      {tab==="sold"&&(
-        sold.length===0
-          ? <Card className="text-center py-6 text-white/30 text-sm">No sold slots yet.</Card>
-          : <div className="space-y-3">
-              {sold.map(s=>(
-                <Card key={s.slot_id} className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div><p className="text-sm font-bold text-white">{s.seller}</p><p className="text-[10px] text-white/40">{s.cycle}</p></div>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/10 border border-white/10 text-white/40">{s.lock&&!s.sold?"Withdrawn":"Sold"}</span>
-                  </div>
-                  <div className="flex justify-between text-sm"><span className="text-white/40">Capital</span><span className="text-white font-bold">{fmt(s.capital)}</span></div>
-                </Card>
-              ))}
-            </div>
-      )}
-
-      {/* Company purchase modal — same flow as investor but buyer is company */}
-      {purchasing&&(
-        <PurchaseModal
-          slot={purchasing}
-          investor={{name:"Gigabundle Ltd (Company)",id:"company"}}
-          onClose={()=>setPurchasing(null)}
-          onConfirm={handleAdminConfirm}
-        />
-      )}
-    </div>
-  );
-};
-
-const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
-  const savedAdminView = (() => { try { return localStorage.getItem('noorinvest_admin_view')||VIEWS.DASH; } catch { return VIEWS.DASH; } })();
-  const [view,setView]=useState(savedAdminView);
-  const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch {}; };
-  const [investors,setInvestors]=useState([]);
+const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,onSignOut})=>{
+  const [view,setView]=useState(VIEWS.DASH);
+  const [cycles,setCycles]=useState(CYCLES_DATA);
+  const [investors,setInvestors]=useState(ALL_INVESTORS);
   const [editTarget,setEditTarget]=useState(null);
   const [addTarget,setAddTarget]=useState(null);
-
-  useEffect(()=>{
-    api.getAllInvestors().then(data=>{ if(data) setInvestors(data); });
-  },[]);
   const [thresholds,setThresholds]=useState(INIT_THRESHOLDS);
   const [pdfs,setPdfs]=useState(INIT_PDFS);
   const pendingCount=pays.filter(p=>p.status==="pending").length+wds.filter(w=>w.status==="pending").length;
-  const handleSaveCycle=async (c)=>{
-    setCycles(cs=>{const ex=cs.find(x=>x.id===c.id);return ex?cs.map(x=>x.id===c.id?c:x):[...cs,c];});
-    try {
-      await supabase.from('cycles').upsert({
-        id:c.id,
-        name:c.name,
-        start_date:c.start,
-        end_date:c.end,
-        pool:c.pool,
-        target_pool:c.target_pool,
-        company_stake_pct:c.company_stake_pct,
-        investor_split:c.investor_split,
-        rollover_days:c.rollover_days,
-        profit_rate:c.profit_rate,
-        total_profit:c.total_profit,
-        status:c.status,
-        accepting:c.accepting,
-        investors_count:c.investors,
-        min_investment:c.min_investment||100000,
-        max_investment:c.max_investment||20000000,
-      });
-    } catch {}
-  };
-
-  const handleAddMembers=async (cycleId,ticked)=>{
-    const addedCount=Object.keys(ticked).length;
-    const addedTotal=Object.values(ticked).reduce((s,v)=>s+parseAmt(v),0);
-    setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,investors:c.investors+addedCount,pool:c.pool+addedTotal,member_ids:[...(c.member_ids||[]),...Object.keys(ticked)]}:c));
-    try {
-      const cyc=cycles.find(c=>c.id===cycleId);
-      // Insert cycle_members rows
-      const rows=Object.entries(ticked).map(([investorId,amt])=>({
-        cycle_id:cycleId,
-        investor_id:investorId,
-        capital_in_cycle:parseAmt(amt),
-      }));
-      await supabase.from('cycle_members').insert(rows);
-      // Update cycle pool and investor count
-      if(cyc){
-        await supabase.from('cycles').update({
-          pool:cyc.pool+addedTotal,
-          investors_count:cyc.investors+addedCount,
-        }).eq('id',cycleId);
-      }
-    } catch {}
-  };
-  const handleApplyProfitCSV=async (cycleId,updates,totalProfit)=>{
-    setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id],profit_withdrawn:false}:i));
+  const nav=v=>setView(v);
+  const handleSaveCycle=c=>{setCycles(cs=>{const ex=cs.find(x=>x.id===c.id);return ex?cs.map(x=>x.id===c.id?c:x):[...cs,c];});};
+  const handleAddMembers=(cycleId,ticked)=>{setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,investors:c.investors+Object.keys(ticked).length,pool:c.pool+Object.values(ticked).reduce((s,v)=>s+parseAmt(v),0),member_ids:[...(c.member_ids||[]),...Object.keys(ticked)]}:c));};
+  const handleApplyProfitCSV=(cycleId,updates,totalProfit)=>{
+    setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id]}:i));
     setCycles(cs=>cs.map(c=>c.id===cycleId?{...c,total_profit:totalProfit}:c));
-    try {
-      const ids=Object.keys(updates);
-      await Promise.all(ids.map(id=>
-        supabase.from('investors').update({ profit:updates[id], profit_withdrawn:false }).eq('id',id)
-      ));
-      await supabase.from('cycles').update({ total_profit:totalProfit }).eq('id',cycleId);
-    } catch {}
   };
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
-  const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.MARKET]:"Secondary Market",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
+  const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
   return (
     <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
@@ -4735,14 +3005,13 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         </div>
       </div>
       <div className="px-5 py-5 max-w-md mx-auto">
-        {view===VIEWS.DASH         &&<DashScreen nav={nav} cycles={cycles} setCycles={setCycles} pendingCount={pendingCount} setWds={setWds}/>}
+        {view===VIEWS.DASH         &&<DashScreen nav={nav} cycles={cycles} setCycles={setCycles} pendingCount={pendingCount}/>}
         {view===VIEWS.CYCLES       &&<CyclesScreen cycles={cycles} setCycles={setCycles} nav={nav} setEditTarget={setEditTarget} setAddTarget={setAddTarget}/>}
         {view===VIEWS.CREATE_CYCLE &&<CreateCycleScreen nav={nav} onSave={handleSaveCycle}/>}
         {view===VIEWS.EDIT_CYCLE   &&editTarget&&<EditCycleScreen cycle={editTarget} nav={nav} onSave={handleSaveCycle}/>}
         {view===VIEWS.ADD_MEMBERS  &&addTarget&&<AddMembersScreen cycle={addTarget} nav={nav} onAdd={handleAddMembers}/>}
         {view===VIEWS.MEMBERS      &&<MembersScreen investors={investors} setInvestors={setInvestors}/>}
-        {view===VIEWS.APPROVALS    &&<ApprovalsScreen pays={pays} setPays={setPays} wds={wds} setWds={setWds} slots={slots} setSlots={setSlots} investors={investors} setInvestors={setInvestors} cycles={cycles} setCycles={setCycles}/>}
-        {view===VIEWS.MARKET       &&<AdminMarketScreen slots={slots} setSlots={setSlots} investors={investors} cycles={cycles} pays={pays} setPays={setPays}/>}
+        {view===VIEWS.APPROVALS    &&<ApprovalsScreen pays={pays} setPays={setPays} wds={wds} setWds={setWds} slots={slots} setSlots={setSlots}/>}
         {view===VIEWS.SETTINGS     &&<SettingsScreen nav={nav}/>}
         {view===VIEWS.PROFIT_CSV       &&<ProfitCSVScreen nav={nav} cycles={cycles} investors={investors} onApply={handleApplyProfitCSV}/>}
         {view===VIEWS.PERFORMANCE_PDF  &&<PerformancePDFScreen nav={nav} cycles={cycles} pdfs={pdfs} setPdfs={setPdfs}/>}
@@ -4757,89 +3026,34 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
 
 // ── Shared Root ──────────────────────────────────────────────────────────────
 export default function NoorInvest() {
-  const [view,setView]=useState(V.LAND);
-  const [vd,setVd]=useState(null);
+  // Restore session from localStorage on load
+  const savedSession = (() => {
+    try { return JSON.parse(localStorage.getItem('noorinvest_session') || 'null'); }
+    catch { return null; }
+  })();
 
-  // 5A: Auto-logout after 15 minutes of inactivity
-  const [showIdleWarning,setShowIdleWarning]=useState(false);
-  const idleTimer=useRef(null);
-  const warnTimer=useRef(null);
-  const IDLE_MS=13*60*1000;  // 13 min → show warning
-  const WARN_MS=2*60*1000;   // 2 min warning → then logout
-
-  const resetIdle=useRef(null);
-  useEffect(()=>{
-    resetIdle.current=()=>{
-      clearTimeout(idleTimer.current);
-      clearTimeout(warnTimer.current);
-      setShowIdleWarning(false);
-      idleTimer.current=setTimeout(()=>{
-        setShowIdleWarning(true);
-        warnTimer.current=setTimeout(()=>{
-          setShowIdleWarning(false);
-          try{localStorage.removeItem('noorinvest_session');localStorage.removeItem('noorinvest_subview');localStorage.removeItem('noorinvest_market_tab');}catch{}
-          setView(V.LAND);setVd(null);
-        },WARN_MS);
-      },IDLE_MS);
-    };
-  },[]);
-
-  useEffect(()=>{
-    const events=["mousedown","mousemove","keydown","touchstart","scroll","click"];
-    const handler=()=>resetIdle.current?.();
-    events.forEach(e=>window.addEventListener(e,handler,{passive:true}));
-    resetIdle.current?.();
-    return()=>{
-      events.forEach(e=>window.removeEventListener(e,handler));
-      clearTimeout(idleTimer.current);
-      clearTimeout(warnTimer.current);
-    };
-  },[]);
-  const [tncDraft,setTncDraftRaw]=useState(INIT_TNC_DRAFT);
-  const tncDraftEdited=useRef(false);
-  const setTncDraft=(updater)=>{ tncDraftEdited.current=true; setTncDraftRaw(updater); };
+  const [view,setView]=useState(savedSession?.view || V.LAND);
+  const [vd,setVd]=useState(savedSession?.vd || null);
+  const [tncDraft,setTncDraft]=useState(INIT_TNC_DRAFT);
   const [tncHistory,setTncHistory]=useState(INIT_TNC_HISTORY);
   const [slots,setSlots]=useState(INIT_MARKET_SLOTS);
-  const [pays,setPays]=useState([]);
-  const [wds,setWds]=useState([]);
-  const [cycles,setCycles]=useState(CYCLES_DATA);
+  const [pays,setPays]=useState(INIT_PAYMENTS);
+  const [wds,setWds]=useState(INIT_WITHDRAWALS);
   const publishedTNC=tncHistory.length>0?tncHistory[tncHistory.length-1]:null;
 
-  // Restore session on page load
-  useEffect(()=>{
-    try {
-      const saved=JSON.parse(localStorage.getItem('noorinvest_session')||'null');
-      if(saved?.view && saved?.vd && (saved.view===V.IDASH||saved.view===V.ADMIN)){
-        setVd(saved.vd);
-        setView(saved.view);
-      }
-    } catch {}
-  },[]);
-
-  // Load live data from Supabase on startup
-  useEffect(()=>{
-    api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); } });
-    api.getPayments().then(data=>{ if(data) setPays(data); });
-    api.getWithdrawals().then(data=>{ if(data) setWds(data); });
-    api.getMarketSlots().then(data=>{ if(data) setSlots(data); });
-    api.getThresholds().then(data=>{ if(data) setLiveThresholds(data); });
-    api.getTncDraft().then(data=>{ if(data && !tncDraftEdited.current) setTncDraftRaw(data); });
-    api.getTncHistory().then(data=>{ if(data) setTncHistory(data); });
-  },[]);
-
   const nav=(v,data=null,user=null)=>{
-    const newVd=user||data;
+    const newVd = user||data;
     setVd(newVd);
     setView(v);
     window.scrollTo(0,0);
-    if(v===V.IDASH||v===V.ADMIN){
-      try { localStorage.setItem('noorinvest_session',JSON.stringify({view:v,vd:newVd})); }
+    // Save session to localStorage (only for authenticated views)
+    if(v===V.IDASH || v===V.ADMIN){
+      try { localStorage.setItem('noorinvest_session', JSON.stringify({view:v, vd:newVd})); }
       catch {}
     } else if(v===V.LAND){
-      try { localStorage.removeItem('noorinvest_session'); } catch {}
-      try { localStorage.removeItem('noorinvest_subview'); } catch {}
-      try { localStorage.removeItem('noorinvest_market_tab'); } catch {}
-      try { localStorage.removeItem('noorinvest_admin_view'); } catch {}
+      // Clear session on logout
+      try { localStorage.removeItem('noorinvest_session'); }
+      catch {}
     }
   };
 
@@ -4851,20 +3065,8 @@ export default function NoorInvest() {
     [V.REG]:<RegScreen nav={nav} publishedTNC={publishedTNC}/>,
     [V.DONE]:<DoneScreen nav={nav} data={vd}/>,
     [V.ADMIN_LOGIN]:<AdminScreen nav={nav}/>,
-    [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} cycles={cycles} setCycles={setCycles} onSignOut={()=>nav(V.LAND)}/>,
-    [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} cycles={cycles} onSignOut={()=>nav(V.LAND)}/>,
+    [V.ADMIN]:<AdminPanel tncDraft={tncDraft} setTncDraft={setTncDraft} tncHistory={tncHistory} setTncHistory={setTncHistory} slots={slots} setSlots={setSlots} pays={pays} setPays={setPays} wds={wds} setWds={setWds} onSignOut={()=>nav(V.LAND)}/>,
+    [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} onSignOut={()=>nav(V.LAND)}/>,
   };
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-start justify-center">
-      <div className="w-full max-w-md min-h-screen relative">
-        {showIdleWarning&&(view===V.IDASH||view===V.ADMIN)&&(
-          <div className="fixed top-0 z-50 w-full max-w-md p-3 bg-amber-950/95 border-b border-amber-600 flex items-center justify-between gap-3">
-            <p className="text-xs text-amber-200 flex-1">You've been inactive. You'll be signed out in 2 minutes.</p>
-            <button onClick={()=>resetIdle.current?.()} className="text-xs font-bold text-amber-400 border border-amber-600 px-2.5 py-1 rounded-lg hover:bg-amber-900">Stay Signed In</button>
-          </div>
-        )}
-        {screens[view]||<Landing nav={nav}/>}
-      </div>
-    </div>
-  );
+  return <div className="font-sans antialiased">{screens[view]||<Landing nav={nav}/>}</div>;
 }
