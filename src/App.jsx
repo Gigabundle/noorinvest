@@ -613,7 +613,7 @@ const api = {
   markNotificationsRead: async (investorId) => {
     try {
       await supabase.from('notifications').update({ read: true }).eq('investor_id', investorId);
-    } catch {}
+    } catch(e){ console.error('anon/notifications update:', e); }
   },
 
   getMarketSlots: async () => {
@@ -1669,7 +1669,7 @@ const ListSlotModal = ({onClose,onList,investor}) => {
 const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,setInvestor,setWithdrawalPending}) => {
   const savedTab = (() => { try { return localStorage.getItem('noorinvest_market_tab')||"buy"; } catch { return "buy"; } })();
   const [activeTab,setActiveTab]=useState(savedTab);
-  const changeTab = t => { setActiveTab(t); try { localStorage.setItem('noorinvest_market_tab',t); } catch {} };
+  const changeTab = t => { setActiveTab(t); try { localStorage.setItem('noorinvest_market_tab',t); } catch(e){ console.error('changeTab/localStorage.setItem(noorinvest_market_tab):', e); } };
   const [purchasing,setPurchasing]=useState(null);
   const [showList,setShowList]=useState(false);
   const [lockDemo,setLockDemo]=useState(false);
@@ -1724,7 +1724,7 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
     // Lock slot in Supabase (not sold yet)
     try {
       await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId);
-    } catch {}
+    } catch(e){ console.error('dateStr/market_slots update:', e); }
   };
 
   const handleList=async ({capital,sale_amount})=>{
@@ -1760,15 +1760,15 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
         expected_rate:INVESTOR_CYCLE.profit_rate,
         lock:false,sold:false,is_company:false,
       });
-    } catch {}
+    } catch(e){ console.error('newSlot / market_slots insert:', e); }
   };
 
   const handleWithdrawListing=async ()=>{
     if(myListing){
       // Mark slot as withdrawn in Supabase
-      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch {}
+      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',myListing.slot_id); } catch(e){ console.error('handleWithdrawListing/market_slots update:', e); }
       // Also try by seller_investor_id as fallback
-      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',investor.id).eq('sold',false); } catch {}
+      try { await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',investor.id).eq('sold',false); } catch(e){ console.error('handleWithdrawListing/market_slots update:', e); }
       // Cancel any pending withdrawal with capital so startup useEffect doesn't restore myListing
       try {
         await supabase.from('withdrawals')
@@ -1776,9 +1776,9 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
           .eq('investor_id',investor.id)
           .eq('status','pending')
           .gt('capital',0);
-      } catch {}
+      } catch(e){ console.error('handleWithdrawListing/market_slots update:', e); }
       // Reset profit_withdrawn in Supabase
-      try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',investor.id); } catch {}
+      try { await supabase.from('investors').update({profit_withdrawn:false}).eq('id',investor.id); } catch(e){ console.error('handleWithdrawListing/investors update:', e); }
       // Reset local state
       if(setInvestor) setInvestor(prev=>({...prev,profit_withdrawn:false}));
       // Reset withdrawalPending so withdrawal form shows again
@@ -2147,7 +2147,7 @@ const ProfileScreen = ({investor,setInvestor}) => {
         nok_rel:draft.nokRelationship,
         nok_addr:draft.nokAddress,
       });
-    } catch {}
+    } catch(e){ console.error('saveProfile / investors update:', e); }
   };
   const cancel=()=>{setDraft({...investor,account_number:investor.account_number||investor.account||"",account_name:investor.account_name||investor.name||""});setEditing(false);setBankUnlocked(false);setBankPw("");setBankPwErr("");};
 
@@ -2639,13 +2639,13 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   // Issue 2: Save sub-screen on every nav change
   const nav=v=>{
     setView(v);
-    try { localStorage.setItem('noorinvest_subview',JSON.stringify(v)); } catch {}
+    try { localStorage.setItem('noorinvest_subview',JSON.stringify(v)); } catch(e){ console.error('nav/localStorage.setItem(noorinvest_subview):', e); }
   };
 
   const markRead=()=>{
     setNotifs(ns=>ns.map(n=>({...n,read:true})));
     api.markNotificationsRead(investor.id);
-    try { localStorage.setItem(notifKey,'true'); } catch {}
+    try { localStorage.setItem(notifKey,'true'); } catch(e){ console.error('markRead/localStorage.setItem(noorinvest_subview):', e); }
   };
   const titles={[IV.HOME]:null,[IV.WITHDRAW]:"Withdraw",[IV.HISTORY]:"History",[IV.MARKET]:"Secondary Market",[IV.INVEST]:"Available Investments",[IV.PROFILE]:"My Account",[IV.STATEMENT]:"My Statement",[IV.REPORTS]:"Performance Reports",[IV.REQUESTS]:"My Requests"};
   // Capital displayed to investor = actual capital minus any amount currently listed on market
@@ -3022,19 +3022,19 @@ const CyclesScreen=({cycles,setCycles,nav,setEditTarget,setAddTarget})=>{
     const cyc=cycles.find(c=>c.id===id);
     const newAccepting=!cyc?.accepting;
     setCycles(cs=>cs.map(c=>c.id===id?{...c,accepting:newAccepting}:c));
-    try { await supabase.from('cycles').update({ accepting:newAccepting }).eq('id',id); } catch {}
+    try { await supabase.from('cycles').update({ accepting:newAccepting }).eq('id',id); } catch(e){ console.error('newAccepting/cycles update:', e); }
   };
   const archiveCycle=async (id)=>{
     const cyc=cycles.find(c=>c.id===id);
     setCycles(cs=>cs.map(c=>c.id===id?{...c,prevStatus:c.status,prevAccepting:c.accepting,status:"archived",accepting:false}:c));
-    try { await supabase.from('cycles').update({ status:"archived", accepting:false }).eq('id',id); } catch {}
+    try { await supabase.from('cycles').update({ status:"archived", accepting:false }).eq('id',id); } catch(e){ console.error('cyc/cycles update:', e); }
   };
   const restoreCycle=async (id)=>{
     const cyc=cycles.find(c=>c.id===id);
     const restoredStatus=cyc?.prevStatus||"closed";
     const restoredAccepting=cyc?.prevAccepting||false;
     setCycles(cs=>cs.map(c=>c.id===id?{...c,status:restoredStatus,accepting:restoredAccepting,prevStatus:undefined,prevAccepting:undefined}:c));
-    try { await supabase.from('cycles').update({ status:restoredStatus, accepting:restoredAccepting }).eq('id',id); } catch {}
+    try { await supabase.from('cycles').update({ status:restoredStatus, accepting:restoredAccepting }).eq('id',id); } catch(e){ console.error('restoredAccepting/cycles update:', e); }
   };
 
   const buildCycleReport=c=>[
@@ -3458,7 +3458,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       if('status' in updates) dbUpdates.status=updates.status;
       if('rejectReason' in updates) dbUpdates.reject_reason=updates.rejectReason;
       await supabase.from('payments').update(dbUpdates).eq('id',id);
-    } catch {}
+    } catch(e){ console.error('dbUpdates/payments update:', e); }
   };
   const updateWd=async (id,updates)=>{
     setWds(ws=>ws.map(w=>w.id===id?{...w,...updates}:w));
@@ -3467,7 +3467,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
       if('status' in updates) dbUpdates.status=updates.status;
       if('adminNote' in updates) dbUpdates.admin_note=updates.adminNote;
       await supabase.from('withdrawals').update(dbUpdates).eq('id',id);
-    } catch {}
+    } catch(e){ console.error('dbUpdates/withdrawals update:', e); }
   };
 
   // Items 2+3: all approval logic lives in one atomic, idempotent Postgres
@@ -3536,7 +3536,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
           profit:0,
         }).eq('id',wd.investorId);
         setInvestors(is=>is.map(i=>i.id===wd.investorId?{...i,profit_withdrawn:false,profit:0}:i));
-      } catch {}
+      } catch(e){ console.error('wd/investors update:', e); }
     }
   };
   const adminPayWd=id=>updateWd(id,{status:"approved",adminNote:"Admin-initiated payment"});
@@ -3551,7 +3551,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
           await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
           // Clear any market slot if one was created
           await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
-        } catch {}
+        } catch(e){ console.error('wd/market_slots update:', e); }
       }
       await updateWd(rejectModal.id,{status:"rejected",adminNote:rejectReason});
     }
@@ -3582,7 +3582,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
         try {
           await supabase.from('investors').update({profit_withdrawn:false}).eq('id',wd.investorId);
           await supabase.from('market_slots').update({sold:true,lock:true}).eq('seller_investor_id',wd.investorId).eq('sold',false);
-        } catch {}
+        } catch(e){ console.error('wd/market_slots update:', e); }
       }
       await updateWd(id,{status:"rejected",adminNote:bulkRejectReason});
     }
@@ -3853,7 +3853,7 @@ const ThresholdsScreen=({nav,thresholds,setThresholds})=>{
         settlement_days: t.days,
       }));
       await supabase.from('thresholds').insert(rows);
-    } catch {}
+    } catch(e){ console.error('rows/thresholds insert:', e); }
   };
 
   return (
@@ -4204,7 +4204,7 @@ const TNCScreen=({nav,draft,setDraft,history,setHistory})=>{
         legal_reviewed:false,
         is_draft:true,
       });
-    } catch {}
+    } catch(e){ console.error('nextVersion/tnc_versions insert:', e); }
   };
 
   return (
@@ -4427,7 +4427,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
     try {
       await supabase.from('market_slots').update({sold:true,lock:true}).eq('slot_id',slotId);
       setSlots(ss=>ss.filter(s=>s.slot_id!==slotId));
-    } catch {}
+    } catch(e){ console.error('handleRemove/market_slots update:', e); }
   };
 
   const handleList=async()=>{
@@ -4492,7 +4492,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
       amount,cycle_name:cycleName,date:dateStr,status:"pending",
       slot_id:slotId,seller_name:slot?.seller||"",receipt:null,reject_reason:"",
     });
-    try { await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId); } catch {}
+    try { await supabase.from('market_slots').update({lock:true}).eq('slot_id',slotId); } catch(e){ console.error('dateStr/market_slots update:', e); }
     setPurchasing(null);
   };
 
@@ -4640,7 +4640,7 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
 const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
   const savedAdminView = (() => { try { return localStorage.getItem('noorinvest_admin_view')||VIEWS.DASH; } catch { return VIEWS.DASH; } })();
   const [view,setView]=useState(savedAdminView);
-  const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch {}; };
+  const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch(e){ console.error('nav/localStorage.setItem(noorinvest_admin_view):', e); }; };
   const [investors,setInvestors]=useState([]);
   const [editTarget,setEditTarget]=useState(null);
   const [addTarget,setAddTarget]=useState(null);
@@ -4672,7 +4672,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         min_investment:c.min_investment||100000,
         max_investment:c.max_investment||20000000,
       });
-    } catch {}
+    } catch(e){ console.error('addOrEditCycle / cycles upsert:', e); }
   };
 
   const handleAddMembers=async (cycleId,ticked)=>{
@@ -4695,7 +4695,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
           investors_count:cyc.investors+addedCount,
         }).eq('id',cycleId);
       }
-    } catch {}
+    } catch(e){ console.error('rows/cycles update:', e); }
   };
   const handleApplyProfitCSV=async (cycleId,updates,totalProfit)=>{
     setInvestors(is=>is.map(i=>updates[i.id]!==undefined?{...i,profit:updates[i.id],profit_withdrawn:false}:i));
@@ -4706,7 +4706,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         supabase.from('investors').update({ profit:updates[id], profit_withdrawn:false }).eq('id',id)
       ));
       await supabase.from('cycles').update({ total_profit:totalProfit }).eq('id',cycleId);
-    } catch {}
+    } catch(e){ console.error('ids/cycles update:', e); }
   };
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
   const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.MARKET]:"Secondary Market",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
@@ -4765,7 +4765,7 @@ export default function NoorInvest() {
         setShowIdleWarning(true);
         warnTimer.current=setTimeout(()=>{
           setShowIdleWarning(false);
-          try{localStorage.removeItem('noorinvest_session');localStorage.removeItem('noorinvest_subview');localStorage.removeItem('noorinvest_market_tab');}catch{}
+          try{localStorage.removeItem('noorinvest_session');localStorage.removeItem('noorinvest_subview');localStorage.removeItem('noorinvest_market_tab');}catch(e){ console.error('resetIdle/localStorage.removeItem(noorinvest_session):', e); }
           setView(V.LAND);setVd(null);
         },WARN_MS);
       },IDLE_MS);
@@ -4801,7 +4801,7 @@ export default function NoorInvest() {
         setVd(saved.vd);
         setView(saved.view);
       }
-    } catch {}
+    } catch(e){ console.error('saved/localStorage.getItem(noorinvest_session):', e); }
   },[]);
 
   // Load live data from Supabase on startup
@@ -4822,12 +4822,12 @@ export default function NoorInvest() {
     window.scrollTo(0,0);
     if(v===V.IDASH||v===V.ADMIN){
       try { localStorage.setItem('noorinvest_session',JSON.stringify({view:v,vd:newVd})); }
-      catch {}
+      catch(e){ console.error('newVd/localStorage.setItem(noorinvest_session):', e); }
     } else if(v===V.LAND){
-      try { localStorage.removeItem('noorinvest_session'); } catch {}
-      try { localStorage.removeItem('noorinvest_subview'); } catch {}
-      try { localStorage.removeItem('noorinvest_market_tab'); } catch {}
-      try { localStorage.removeItem('noorinvest_admin_view'); } catch {}
+      try { localStorage.removeItem('noorinvest_session'); } catch(e){ console.error('newVd/localStorage.removeItem(noorinvest_session):', e); }
+      try { localStorage.removeItem('noorinvest_subview'); } catch(e){ console.error('newVd/localStorage.removeItem(noorinvest_subview):', e); }
+      try { localStorage.removeItem('noorinvest_market_tab'); } catch(e){ console.error('newVd/localStorage.removeItem(noorinvest_market_tab):', e); }
+      try { localStorage.removeItem('noorinvest_admin_view'); } catch(e){ console.error('newVd/localStorage.removeItem(noorinvest_admin_view):', e); }
     }
   };
 
