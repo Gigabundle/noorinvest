@@ -305,8 +305,12 @@ const api = {
       });
       if (!valid) return { ok: false };
       return { ok: true, name: data.name };
-    } catch {
-      return email === "admin@noorinvest.ng" && pw === "Admin@2025" ? { ok: true, name: "Ibrahim Usman" } : { ok: false };
+    } catch (e) {
+      // SECURITY: fail closed. Never fall back to client-side credentials —
+      // the bundle is public, so any hardcoded password here is public too,
+      // and an attacker can force this catch by blocking the Supabase request.
+      console.error('adminLogin failed:', e);
+      return { ok: false, err: "SERVICE_UNAVAILABLE" };
     }
   },
 
@@ -966,7 +970,7 @@ const DoneScreen = ({nav,data}) => (
 const AdminScreen = ({nav}) => {
   const [email,setEmail]=useState(""); const [pw,setPw]=useState("");
   const [loading,setLoading]=useState(false); const [alert,setAlert]=useState(null); const [errs,setErrs]=useState({});
-  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email";if(!pw.length)e.pw="Password required";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.adminLogin(email,pw);setLoading(false);if(r.ok)setTimeout(()=>nav(V.ADMIN,null,r),600);else setAlert({type:"error",msg:"Invalid admin credentials."});};
+  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email";if(!pw.length)e.pw="Password required";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.adminLogin(email,pw);setLoading(false);if(r.ok)setTimeout(()=>nav(V.ADMIN,null,r),600);else setAlert({type:"error",msg:r.err==="SERVICE_UNAVAILABLE"?"Cannot reach the server. Check your connection and try again.":"Invalid admin credentials."});};
   return(
     <Shell nav={nav} badge="Admin Portal" title="Admin Sign In" sub="Restricted access. Authorised personnel only.">
       <button onClick={()=>nav(V.LAND)} className="text-xs text-white/30 hover:text-white/60">← Back</button>
