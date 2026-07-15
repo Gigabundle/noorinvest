@@ -5,30 +5,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 
 // ── Admin Data + Helpers + UI Primitives ─────────────────────────────────────
 // ── Real data from ProfitSharing_June2026.pdf ─────────────────────────────────
-const ALL_INVESTORS = [
-  { id:"u01", name:"Toheeb Obidara",            phone:"08140980207", capital:500000,    stake:0.493,  profit:23554.34,   approved_withdrawals:0,          status:"active", email:"toheeb@email.com",    bank:"GTBank",       account:"0162180968", investment_date:"2025-12-30", profit_withdrawn:false, nokName:"Aishat Lawal",          nokPhone:"+18573398794", nokRel:"Sister",   nokAddr:"Apt 7, 114 Shurtleff St, Chelsea, MA" },
-  { id:"u02", name:"Abdulrahim Hidayat Oyiza",  phone:"08093885975", capital:400000,    stake:0.394,  profit:18843.48,   approved_withdrawals:0,          status:"active", email:"abdulrahim@email.com", bank:"First Bank",   account:"3105652439", investment_date:"2025-09-02", profit_withdrawn:false, nokName:"Ahmed Abdulrahim",      nokPhone:"07066807479", nokRel:"Brother",  nokAddr:"No 1, Hayin Amina Rigasa, Kaduna" },
-  { id:"u03", name:"Zainab Musa Suleiman",      phone:"08033115747", capital:1000000,   stake:0.986,  profit:47108.69,   approved_withdrawals:0,          status:"active", email:"zainab@email.com",     bank:"Jaiz Bank",    account:"0001315305", investment_date:"2025-04-05", profit_withdrawn:false, nokName:"Hajiya Sa'a",           nokPhone:"08166517533", nokRel:"Mother",   nokAddr:"Apalowo Drive Saraha 2, Lokogoma, Abuja" },
-  { id:"u04", name:"Fatima Yunusa",             phone:"08167215425", capital:1100000,   stake:1.085,  profit:51819.56,   approved_withdrawals:1151819.56, status:"active", email:"fatima@email.com",     bank:"Palmpay",      account:"8175833349", investment_date:"2025-04-11", profit_withdrawn:true,  nokName:"Hassenetu Baba",        nokPhone:"08138707923", nokRel:"Sister",   nokAddr:"Bwari, Abuja" },
-  { id:"u05", name:"Ayuba Abdullahi Ajide",     phone:"08137290402", capital:5000000,   stake:4.931,  profit:235543.45,  approved_withdrawals:0,          status:"active", email:"ayuba@email.com",      bank:"GTBank",       account:"0149299289", investment_date:"2025-04-04", profit_withdrawn:false, nokName:"N/A",                   nokPhone:"N/A",         nokRel:"N/A",      nokAddr:"N/A" },
-  { id:"u06", name:"Buhari Aishat",             phone:"08164601304", capital:1000000,   stake:0.986,  profit:47108.69,   approved_withdrawals:0,          status:"active", email:"buhari@email.com",     bank:"Opay",         account:"8164601304", investment_date:"2025-04-04", profit_withdrawn:false, nokName:"Aliu Bashir",           nokPhone:"07055159233", nokRel:"Spouse",   nokAddr:"1 Omokoiki St, Molipa Rd, Ijebu Ode" },
-  { id:"u07", name:"Onyedikachi Kuss",          phone:"08062516217", capital:10000000,  stake:9.862,  profit:471086.90,  approved_withdrawals:0,          status:"active", email:"onyedi@email.com",     bank:"GTBank",       account:"0109535981", investment_date:"2025-07-04", profit_withdrawn:false, nokName:"Mr. Ucheoma Nduka Chuks",nokPhone:"07025372192",nokRel:"Brother",  nokAddr:"57 Cemetery Rd, Amukoko, Lagos" },
-  { id:"u08", name:"Nduka Ucheoma",             phone:"07025372192", capital:11000000,  stake:10.848, profit:518195.59,  approved_withdrawals:0,          status:"active", email:"nduka@email.com",      bank:"Zenith Bank",  account:"2000839824", investment_date:"2025-04-04", profit_withdrawn:false, nokName:"Mrs Chikodi Ucheoma",   nokPhone:"08053826619", nokRel:"Spouse",   nokAddr:"57 Cemetery Rd, Amukoko, Lagos" },
-  { id:"u09", name:"Nuruddeen Ibrahim Sgida",   phone:"07030004568", capital:500000,    stake:0.493,  profit:23554.34,   approved_withdrawals:0,          status:"active", email:"nurudeen@email.com",   bank:"Opay",         account:"7030004568", investment_date:"2025-04-04", profit_withdrawn:false, nokName:"Alhassan Zainab Danfulani",nokPhone:"08069067611",nokRel:"Sister", nokAddr:"Iya Rd Opposite Kasuwan Dare Masjid" },
-  { id:"u10", name:"Raji Faridat",              phone:"08144638570", capital:1000000,   stake:0.986,  profit:47108.69,   approved_withdrawals:0,          status:"active", email:"raji@email.com",       bank:"Moniepoint",   account:"8238066884", investment_date:"2026-02-02", profit_withdrawn:false, nokName:"Samaru Yahaya Musa",    nokPhone:"08064288850", nokRel:"Father",   nokAddr:"Palladan" },
-  { id:"u11", name:"Ajiboye Hamidat Oluwatoyin",phone:"08167576305", capital:16000000,  stake:15.779, profit:753739.04,  approved_withdrawals:0,          status:"active", email:"ajiboye@email.com",    bank:"UBA",          account:"1019779873", investment_date:"2025-04-03", profit_withdrawn:false, nokName:"Aisha AbdulRa'uf",      nokPhone:"08141737923", nokRel:"Sister",   nokAddr:"Arkilla Layout, Sokoto" },
-  { id:"u12", name:"Musa Aminu",                phone:"07087808651", capital:700000,    stake:0.690,  profit:32976.08,   approved_withdrawals:0,          status:"active", email:"musa@email.com",       bank:"Jaiz Bank",    account:"0003753257", investment_date:"2025-04-03", profit_withdrawn:false, nokName:"Juwairiyya Musa",       nokPhone:"07039785626", nokRel:"Sister",   nokAddr:"Area 1 Section 2, Garki, Abuja" },
-  { id:"u13", name:"Olaniyan Mustapha",         phone:"07036708965", capital:1000000,   stake:0.986,  profit:47108.69,   approved_withdrawals:0,          status:"active", email:"olaniyan@email.com",   bank:"Opay",         account:"7036708965", investment_date:"2025-04-03", profit_withdrawn:false, nokName:"Zainab Kareem-Olaniyan",nokPhone:"08060420749", nokRel:"Spouse",   nokAddr:"MOQ 5, NAF Base Bauchi" },
-  { id:"u14", name:"Abdul ganiy hanaf",         phone:"08023661756", capital:1500000,   stake:1.479,  profit:70663.03,   approved_withdrawals:0,          status:"active", email:"abdulganiy@email.com", bank:"Jaiz Bank",    account:"0002644154", investment_date:"2025-04-14", profit_withdrawn:false, nokName:"N/A",                   nokPhone:"N/A",         nokRel:"N/A",      nokAddr:"N/A" },
-  { id:"u15", name:"Ishola Rashidat",           phone:"07037241024", capital:800000,    stake:0.789,  profit:37686.95,   approved_withdrawals:0,          status:"active", email:"ishola@email.com",     bank:"Taj Bank",     account:"0006933295", investment_date:"2025-04-12", profit_withdrawn:false, nokName:"Aworinde Lateefat",     nokPhone:"08109253769", nokRel:"Sister",   nokAddr:"Otta, Ogun State" },
-  { id:"u16", name:"Nurudeen D. Ademola",       phone:"08143188190", capital:1000000,   stake:0.986,  profit:47108.69,   approved_withdrawals:0,          status:"active", email:"nurudeen2@email.com",  bank:"Opay",         account:"8089897417", investment_date:"2025-04-03", profit_withdrawn:false, nokName:"Zainab Salaam",         nokPhone:"08032639900", nokRel:"Spouse",   nokAddr:"Kosobo, Oyo" },
-  { id:"u17", name:"Abdullahi Nasiru",          phone:"08035388383", capital:14000000,  stake:13.807, profit:659521.66,  approved_withdrawals:0,          status:"active", email:"abdullahi@email.com",  bank:"Fidelity Bank",account:"6237898071",  investment_date:"2025-04-13", profit_withdrawn:false, nokName:"Nasiru Garba",          nokPhone:"08035388383", nokRel:"Brother",  nokAddr:"Unguwar Yayaji Kafin Madaki" },
-  { id:"u18", name:"Atanda Ayodele Sarat",      phone:"07034496423", capital:1000000,   stake:0.986,  profit:47108.69,   approved_withdrawals:0,          status:"active", email:"atanda@email.com",     bank:"First Bank",   account:"3048820845", investment_date:"2025-04-03", profit_withdrawn:false, nokName:"Ibrahim Fatimah Zarah", nokPhone:"08067168181", nokRel:"Sister",   nokAddr:"Oloje Estate, Ilorin" },
-  { id:"u19", name:"Ucheoma Chinagoro Chizoro", phone:"07039654166", capital:30000000,  stake:29.586, profit:1413260.69, approved_withdrawals:0,          status:"active", email:"ucheoma@email.com",    bank:"Pocketapp",    account:"9108254018", investment_date:"2025-04-14", profit_withdrawn:false, nokName:"Essien Wilfred",        nokPhone:"08026255202", nokRel:"Brother",  nokAddr:"25 Peter Nyam St, Ushafa, Abuja" },
-  { id:"u20", name:"Inusa Izuafa Mujibah",      phone:"07032564727", capital:2000000,   stake:1.972,  profit:94217.38,   approved_withdrawals:0,          status:"active", email:"inusa@email.com",      bank:"First Bank",   account:"3147366169", investment_date:"2025-04-19", profit_withdrawn:false, nokName:"Fatimah",               nokPhone:"08068951381", nokRel:"Spouse",   nokAddr:"No 89, Okpokpo Quarter, Adeje" },
-  { id:"u21", name:"Suleiman Muktar Salka",     phone:"08108675353", capital:1400000,   stake:1.381,  profit:65952.17,   approved_withdrawals:0,          status:"active", email:"suleiman@email.com",   bank:"First Bank",   account:"3078469807", investment_date:"2025-06-30", profit_withdrawn:false, nokName:"Sadiq Salka",           nokPhone:"07066059060", nokRel:"Brother",  nokAddr:"Minna" },
-  { id:"u22", name:"Murtador Sodiq Abubakar",   phone:"07065670207", capital:500000,    stake:0.493,  profit:23554.34,   approved_withdrawals:0,          status:"active", email:"murtador@email.com",   bank:"Palmpay",      account:"7065670207", investment_date:"2025-07-01", profit_withdrawn:false, nokName:"Abdullateef Ishaq",     nokPhone:"08069778576", nokRel:"Brother",  nokAddr:"Orelope Bus Stop, Apata Yakuba, Ilorin" },
-];
+const ALL_INVESTORS = []; // PII removed — investor data lives in Supabase now
 
 const CYCLES_DATA = [
   { id:"cyc-001", name:"Cycle Mar–May 2026", start:"2026-03-01", end:"2026-05-31", target_pool:101400000, pool:101400000, company_stake_pct:30, investor_split:70, rollover_days:7, profit_rate:4.7109, total_profit:6824030.20, status:"closed",   investors:22, accepting:false, member_ids:["u01","u02","u03","u04","u05","u06","u07","u08","u09","u10","u11","u12","u13","u14","u15","u16","u17","u18","u19","u20","u21","u22"] },
@@ -41,8 +18,8 @@ const INIT_PAYMENTS = [
 ];
 
 const INIT_WITHDRAWALS = [
-  { id:"wd-001", investorId:"u01", investor:"Toheeb Obidara",  bank:"GTBank",  account:"0162180968", type:"profit_only", amount:23554.34,   capital:0,       date:"10 Jun 2026", status:"pending", adminNote:"" },
-  { id:"wd-002", investorId:"u04", investor:"Fatima Yunusa",   bank:"Palmpay", account:"8175833349", type:"profit_full", amount:1151819.56, capital:1100000, date:"11 Jun 2026", status:"pending", adminNote:"" },
+  { id:"wd-001", investorId:"u01", investor:"Sample Investor A", bank:"GTBank",  account:"0000000001", type:"profit_only", amount:23554.34,   capital:0,       date:"10 Jun 2026", status:"pending", adminNote:"" },
+  { id:"wd-002", investorId:"u04", investor:"Sample Investor B", bank:"Palmpay", account:"0000000002", type:"profit_full", amount:1151819.56, capital:1100000, date:"11 Jun 2026", status:"pending", adminNote:"" },
 ];
 
 // Withdrawal threshold bands (admin-configurable). max:null on the last band means "and above".
@@ -185,37 +162,13 @@ const Banner = ({type,msg,onClose,onAction,actionLabel}) => {
 };
 
 // ── Auth Data + Investor View Constants ──────────────────────────────────────
-const INVESTORS = [
-  { id:"u01", phone:"08140980207", name:"Toheeb Obidara",            capital:500000,    stake:0.493,  profit:23554.34,   hasAccount:false, email:null, pw:null },
-  { id:"u02", phone:"08093885975", name:"Abdulrahim Hidayat Oyiza",  capital:400000,    stake:0.394,  profit:18843.48,   hasAccount:false, email:null, pw:null },
-  { id:"u03", phone:"08033115747", name:"Zainab Musa Suleiman",      capital:1000000,   stake:0.986,  profit:47108.69,   hasAccount:false, email:null, pw:null },
-  { id:"u04", phone:"08167215425", name:"Fatima Yunusa",             capital:1100000,   stake:1.085,  profit:51819.56,   hasAccount:false, email:null, pw:null },
-  { id:"u05", phone:"08137290402", name:"Ayuba Abdullahi Ajide",     capital:5000000,   stake:4.931,  profit:235543.45,  hasAccount:false, email:null, pw:null },
-  { id:"u06", phone:"08164601304", name:"Buhari Aishat",             capital:1000000,   stake:0.986,  profit:47108.69,   hasAccount:false, email:null, pw:null },
-  { id:"u07", phone:"08062516217", name:"Onyedikachi Kuss",          capital:10000000,  stake:9.862,  profit:471086.90,  hasAccount:false, email:null, pw:null },
-  { id:"u08", phone:"07025372192", name:"Nduka Ucheoma",             capital:11000000,  stake:10.848, profit:518195.59,  hasAccount:false, email:null, pw:null },
-  { id:"u09", phone:"07030004568", name:"Nuruddeen Ibrahim Sgida",   capital:500000,    stake:0.493,  profit:23554.34,   hasAccount:false, email:null, pw:null },
-  { id:"u10", phone:"08144638570", name:"Raji Faridat",              capital:1000000,   stake:0.986,  profit:47108.69,   hasAccount:false, email:null, pw:null },
-  { id:"u11", phone:"08167576305", name:"Ajiboye Hamidat Oluwatoyin",capital:16000000,  stake:15.779, profit:753739.04,  hasAccount:false, email:null, pw:null },
-  { id:"u12", phone:"07087808651", name:"Musa Aminu",                capital:700000,    stake:0.690,  profit:32976.08,   hasAccount:false, email:null, pw:null },
-  { id:"u13", phone:"07036708965", name:"Olaniyan Mustapha",         capital:1000000,   stake:0.986,  profit:47108.69,   hasAccount:false, email:null, pw:null },
-  { id:"u14", phone:"08023661756", name:"Abdul ganiy hanaf",         capital:1500000,   stake:1.479,  profit:70663.03,   hasAccount:false, email:null, pw:null },
-  { id:"u15", phone:"07037241024", name:"Ishola Rashidat",           capital:800000,    stake:0.789,  profit:37686.95,   hasAccount:false, email:null, pw:null },
-  { id:"u16", phone:"08143188190", name:"Nurudeen D. Ademola",       capital:1000000,   stake:0.986,  profit:47108.69,   hasAccount:false, email:null, pw:null },
-  { id:"u17", phone:"08035388383", name:"Abdullahi Nasiru",          capital:14000000,  stake:13.807, profit:659521.66,  hasAccount:false, email:null, pw:null },
-  { id:"u18", phone:"07034496423", name:"Atanda Ayodele Sarat",      capital:1000000,   stake:0.986,  profit:47108.69,   hasAccount:false, email:null, pw:null },
-  { id:"u19", phone:"07039654166", name:"Ucheoma Chinagoro Chizoro", capital:30000000,  stake:29.586, profit:1413260.69, hasAccount:false, email:null, pw:null },
-  { id:"u20", phone:"07032564727", name:"Inusa Izuafa Mujibah",      capital:2000000,   stake:1.972,  profit:94217.38,   hasAccount:false, email:null, pw:null },
-  { id:"u21", phone:"08108675353", name:"Suleiman Muktar Salka",     capital:1400000,   stake:1.381,  profit:65952.17,   hasAccount:false, email:null, pw:null },
-  { id:"u22", phone:"07065670207", name:"Murtador Sodiq Abubakar",   capital:500000,    stake:0.493,  profit:23554.34,   hasAccount:false, email:null, pw:null },
-  { id:"demo", phone:"08012345678", name:"Demo Investor",            capital:500000,    stake:0.493,  profit:23554.34,   hasAccount:true,  email:"demo@noorinvest.ng", pw:"Demo123!" },
-];
+const INVESTORS = []; // PII removed — investor data lives in Supabase now
 
 const BANKS = ["Access Bank","Ecobank","Fidelity Bank","First Bank","GTBank","Jaiz Bank","Keystone Bank","Moniepoint","Opay","Palmpay","Pocketapp","Polaris Bank","Stanbic IBTC","Sterling Bank","Taj Bank","UBA","Unity Bank","Wema Bank","Zenith Bank"];
 const RELS  = ["Spouse","Father","Mother","Son","Daughter","Brother","Sister","Uncle","Aunt","Other"];
 
 // ── Supabase API ──────────────────────────────────────────────────────────────
-let store = INVESTORS.map(i => ({...i})); // kept as fallback during transition
+let store = []; // fallback disabled — was leaking PII
 let newUsers = [];
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
@@ -283,9 +236,9 @@ const api = {
         .eq('phone', data.phone)
         .maybeSingle();
       return { ok: true, name: data.name, id: inv?.id || data.id, phone: data.phone };
-    } catch {
-      const r = [...store, ...newUsers].find(u => u.email === email && u.pw === pw);
-      return r ? { ok: true, name: r.name, id: r.id } : { ok: false };
+    } catch (e) {
+      console.error('investor login failed:', e);
+      return { ok: false, err: "SERVICE_UNAVAILABLE" };
     }
   },
 
@@ -1019,10 +972,10 @@ const INIT_INVESTOR = {
   id:"u-demo", name:"Demo Investor", email:"demo@noorinvest.ng",
   phone:"08012345678", capital:500000, stake:0.493, profit:23554.34,
   investment_date:"2026-03-01", profit_withdrawn:false,
-  bank:"GTBank", account_number:"0162180968", account_name:"Demo Investor",
-  address:"Apt 7, 114 Shurtleff Street, Chelsea, Massachusetts, USA",
-  nokName:"Aishat Lawal", nokPhone:"+18573398794", nokRelationship:"Sister",
-  nokAddress:"Apt 7, 114 Shurtleff Street, Chelsea, Massachusetts, USA",
+  bank:"GTBank", account_number:"0000000000", account_name:"Demo Investor",
+  address:"123 Demo Street, Demo City",
+  nokName:"Demo NoK", nokPhone:"08000000000", nokRelationship:"Sister",
+  nokAddress:"123 Demo Street, Demo City",
 };
 
 const INIT_MARKET_SLOTS = [
@@ -3730,7 +3683,6 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
         )}
 
         {filteredWds.map(w=>{
-          const inv=ALL_INVESTORS.find(i=>i.id===w.investorId);
           return (
             <Card key={w.id} className="space-y-3">
               <div className="flex items-start gap-2">
