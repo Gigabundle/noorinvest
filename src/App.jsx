@@ -2529,6 +2529,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   // Total pool = sum of all investor capital (fetched from Supabase, includes any
   // future-cycle joiners whose cycle isn't yet the current one).
   const [totalPool,setTotalPool]=useState(0);
+  const [investorCount,setInvestorCount]=useState(0);
   useEffect(()=>{
     supabase.from('investors').select('capital').neq('id','company')
       .then(({data,error})=>{
@@ -2536,6 +2537,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
         if(data){
           const sum=data.reduce((s,r)=>s+Number(r.capital||0),0);
           setTotalPool(sum);
+          setInvestorCount(data.length);
         }
       });
   },[]);
@@ -2712,7 +2714,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
     <div className="space-y-5 pb-24">
       <div><p className="text-xs text-white/40">Admin Panel</p><h1 className="text-xl font-black text-white">Dashboard</h1></div>
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Total Investor Pool" value={fmtM(totalPool)}  sub="22 investors"      icon={Wallet}      color="text-blue-400"    bg="bg-blue-700/10 border-blue-700/20"/>
+        <StatCard label="Total Investor Pool" value={fmtM(totalPool)}  sub={`${investorCount} investors`}      icon={Wallet}      color="text-blue-400"    bg="bg-blue-700/10 border-blue-700/20"/>
         <StatCard label="Last Cycle Profit"   value={lastClosed?fmtM(lastClosed.total_profit):"—"} sub={lastClosed?lastClosed.name:"No closed cycle yet"}      icon={TrendingUp}  color="text-emerald-400" bg="bg-emerald-700/10 border-emerald-700/20"/>
         <StatCard label="Company Retained"    value={lastClosed?fmtM(companyRetained):"—"} sub={lastClosed?`${companyRetainedPct.toFixed(2)}% of net profit`:"—"}    icon={Building2}   color="text-purple-400"  bg="bg-purple-700/10 border-purple-700/20"/>
         <StatCard label="Pending Actions"     value={pendingCount}      sub="Require attention" icon={CheckSquare} color="text-amber-400"   bg="bg-amber-700/10 border-amber-700/20"/>
