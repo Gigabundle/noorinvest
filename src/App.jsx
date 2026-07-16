@@ -786,7 +786,7 @@ const Landing = ({nav}) => (
     </div>
 
     <div className="border-t border-white/5 px-6 py-4 flex justify-around">
-      {(()=>{ const c=CYCLES_DATA.find(x=>x.status==="closed")||CYCLES_DATA[0]; const activeCount=ALL_INVESTORS.filter(i=>i.status==="active").length; return [{v:`₦${(c.pool/1e6).toFixed(1)}M`,l:"Investor Pool"},{v:String(activeCount),l:"Active Investors"},{v:`${c.profit_rate||"—"}%`,l:"Last Cycle Profit"}];})().map(({v,l})=>(
+      {(()=>{ const c=CYCLES_DATA.find(x=>x.status==="closed")||CYCLES_DATA[0]; return [{v:`₦${(c.pool/1e6).toFixed(1)}M`,l:"Investor Pool"},{v:"20+",l:"Active Investors"},{v:`${c.profit_rate||"—"}%`,l:"Last Cycle Profit"}];})().map(({v,l})=>(
         <div key={l} className="text-center"><p className="text-base font-black text-blue-400 font-mono">{v}</p><p className="text-[10px] text-white/30 uppercase tracking-widest mt-0.5">{l}</p></div>
       ))}
     </div>
@@ -2518,8 +2518,6 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   })();
   const [view,setView]=useState(savedSubView||IV.HOME);
   const [investor,setInvestor]=useState(
-    ALL_INVESTORS.find(i=>i.phone===user?.phone)||
-    ALL_INVESTORS.find(i=>i.id===user?.id)||
     newUsers.find(i=>i.phone===user?.phone)||
     newUsers.find(i=>i.email===user?.email)||
     {...INIT_INVESTOR}
@@ -2653,7 +2651,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
     api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); }; });
   },[]);
 
-  const totalPool=ALL_INVESTORS.reduce((s,i)=>s+i.capital,0);
+  const totalPool=cycles.reduce((s,c)=>s+Number(c.pool||0),0);
   const openCycle=cycles.find(c=>c.status==="open");
   const closedCycles=cycles.filter(c=>c.status==="closed"&&c.total_profit!=null);
   const lastClosed=closedCycles.length?closedCycles.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b):null;
@@ -2767,18 +2765,6 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
           ))}
         </div>
       </div>
-      <div>
-        <div className="flex items-center justify-between mb-3"><p className="text-[10px] font-bold uppercase tracking-widest text-white/30">Top Investors</p><button onClick={()=>nav(VIEWS.MEMBERS)} className="text-[10px] text-blue-400 font-semibold">View all →</button></div>
-        <div className="space-y-2">
-          {ALL_INVESTORS.sort((a,b)=>b.capital-a.capital).slice(0,4).map(inv=>(
-            <div key={inv.id} className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl">
-              <div className="w-8 h-8 rounded-full bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><User className="w-3.5 h-3.5 text-blue-400"/></div>
-              <div className="flex-1 min-w-0"><p className="text-xs font-bold text-white truncate">{inv.name}</p><p className="text-[10px] text-white/40">{inv.stake}%</p></div>
-              <p className="text-xs font-black text-white font-mono">{fmtM(inv.capital)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 };
@@ -2864,6 +2850,16 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
   const [search,setSearch]=useState("");
   const [done,setDone]=useState(false);
   const [lockedIds,setLockedIds]=useState(new Set());
+  const [allInvestors,setAllInvestors]=useState([]);
+
+  // Load investors fresh from Supabase — this is the source of truth
+  useEffect(()=>{
+    supabase.from('investors').select('*').neq('id','company')
+      .then(({data,error})=>{
+        if(error){ console.error('AddMembersScreen investors fetch failed:',error); return; }
+        if(data) setAllInvestors(data);
+      });
+  },[]);
 
   // 5C: Lock investors whose cycle end_date is still in the future (still deployed)
   useEffect(()=>{
@@ -2878,10 +2874,10 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
           .then(({data})=>{
             if(data) setLockedIds(new Set(data.map(r=>r.investor_id)));
           });
-      }).catch(()=>{});
+      }).catch(e=>{ console.error('AddMembersScreen lockedIds fetch failed:',e); });
   },[cycle.id]);
 
-  const filtered=ALL_INVESTORS.filter(i=>i.status==="active"&&!(cycle.member_ids||[]).includes(i.id)&&(i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search)));
+  const filtered=allInvestors.filter(i=>i.status==="active"&&!(cycle.member_ids||[]).includes(i.id)&&(i.name.toLowerCase().includes(search.toLowerCase())||i.phone.includes(search)));
   const allSelected=filtered.filter(i=>!lockedIds.has(i.id)).length>0&&filtered.filter(i=>!lockedIds.has(i.id)).every(i=>ticked[i.id]!==undefined);
 
   const toggle=inv=>{
@@ -3973,7 +3969,7 @@ const ProfitCSVScreen=({nav,cycles,investors:investorsProp,onApply})=>{
   const [applied,setApplied]=useState(false);
   const [showTemplate,setShowTemplate]=useState(false);
   const [copied,setCopied]=useState(false);
-  const [investors,setInvestors]=useState(investorsProp?.length>0 ? investorsProp : ALL_INVESTORS);
+  const [investors,setInvestors]=useState(investorsProp?.length>0 ? investorsProp : []);
 
   // Load investors fresh from Supabase on mount so CSV matching always works
   useEffect(()=>{
