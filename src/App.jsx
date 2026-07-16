@@ -2526,22 +2526,6 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   // Issue 3: Loading state — show spinner until real data arrives
   const [investorLoaded,setInvestorLoaded]=useState(false);
 
-  // Total pool = sum of all investor capital (fetched from Supabase, includes any
-  // future-cycle joiners whose cycle isn't yet the current one).
-  const [totalPool,setTotalPool]=useState(0);
-  const [investorCount,setInvestorCount]=useState(0);
-  useEffect(()=>{
-    supabase.from('investors').select('capital').neq('id','company')
-      .then(({data,error})=>{
-        if(error){ console.error('InvestorPortal totalPool fetch failed:',error); return; }
-        if(data){
-          const sum=data.reduce((s,r)=>s+Number(r.capital||0),0);
-          setTotalPool(sum);
-          setInvestorCount(data.length);
-        }
-      });
-  },[]);
-
   // Load real investor data AND restore state from Supabase on mount
   useEffect(()=>{
     if(user?.phone){
@@ -2662,6 +2646,21 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
 };
 // ── Admin Panel Screens ──────────────────────────────────────────────────────
 const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
+  // Total pool = sum of all investor capital (fetched from Supabase, includes any
+  // future-cycle joiners whose cycle isn't yet the current one).
+  const [totalPool,setTotalPool]=useState(0);
+  const [investorCount,setInvestorCount]=useState(0);
+  useEffect(()=>{
+    supabase.from('investors').select('capital').neq('id','company')
+      .then(({data,error})=>{
+        if(error){ console.error('DashScreen totalPool fetch failed:',error); return; }
+        if(data){
+          const sum=data.reduce((s,r)=>s+Number(r.capital||0),0);
+          setTotalPool(sum);
+          setInvestorCount(data.length);
+        }
+      });
+  },[]);
   // Refresh live cycle data from Supabase every time the dashboard opens
   useEffect(()=>{
     api.getCycles().then(data=>{ if(data){ updateInvestorCycles(data); setCycles(data); }; });
