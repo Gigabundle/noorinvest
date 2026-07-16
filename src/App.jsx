@@ -2651,7 +2651,7 @@ const DashScreen=({nav,cycles,setCycles,pendingCount,setWds})=>{
   const [totalPool,setTotalPool]=useState(0);
   const [investorCount,setInvestorCount]=useState(0);
   useEffect(()=>{
-    supabase.from('investors').select('capital').neq('id','company')
+    supabase.from('investors').select('capital')
       .then(({data,error})=>{
         if(error){ console.error('DashScreen totalPool fetch failed:',error); return; }
         if(data){
