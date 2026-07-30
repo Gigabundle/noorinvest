@@ -2368,7 +2368,7 @@ const RequestsScreen = ({nav, investor}) => {
       if(pays) setPayments(pays);
       if(wds) setWithdrawals(wds);
       setLoading(false);
-    }).catch(()=>setLoading(false));
+    }).catch(e=>{ console.error('RequestsScreen fetchData failed:',e); setLoading(false); });
   };
 
   useEffect(()=>{ fetchData(); },[investor.id]);
@@ -2394,13 +2394,14 @@ const RequestsScreen = ({nav, investor}) => {
     })),
   ].sort((a,b)=>new Date(b.date)-new Date(a.date));
 
-  const tabs=[{id:"all",label:"All"},{id:"pending",label:"Pending"},{id:"approved",label:"Approved"},{id:"rejected",label:"Rejected"}];
+  const tabs=[{id:"all",label:"All"},{id:"pending",label:"Pending"},{id:"approved",label:"Approved"},{id:"rejected",label:"Rejected"},{id:"cancelled",label:"Cancelled"}];
   const filtered=activeTab==="all"?allRequests:allRequests.filter(r=>r.status===activeTab);
 
   const statusStyle={
     pending:"bg-amber-500/15 border-amber-500/20 text-amber-400",
     approved:"bg-emerald-500/15 border-emerald-500/20 text-emerald-400",
     rejected:"bg-red-500/15 border-red-500/20 text-red-400",
+    cancelled:"bg-white/10 border-white/20 text-white/50",
   };
 
   return(
