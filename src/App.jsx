@@ -217,19 +217,22 @@ const api = {
   },
 
   login: async (email, pw) => {
+    const cleanEmail = (email || "").trim().toLowerCase();
     try {
       const { data, error } = await supabase
         .from('users')
         .select('id, name, phone, password_hash, role')
-        .eq('email', email)
+        .eq('email', cleanEmail)
         .single();
-      if (error || !data) return { ok: false };
+      if (error) return { ok: false, err: "LOOKUP_ERROR", detail: error.message };
+      if (!data) return { ok: false, err: "NO_ACCOUNT" };
       // Server-side bcrypt verification
-      const { data: valid } = await supabase.rpc('verify_password', {
+      const { data: valid, error: rpcErr } = await supabase.rpc('verify_password', {
         plaintext: pw,
         hash: data.password_hash
       });
-      if (!valid) return { ok: false };
+      if (rpcErr) return { ok: false, err: "VERIFY_ERROR", detail: rpcErr.message };
+      if (!valid) return { ok: false, err: "WRONG_PASSWORD" };
       const { data: inv } = await supabase
         .from('investors')
         .select('id')
@@ -237,7 +240,7 @@ const api = {
         .maybeSingle();
       return { ok: true, name: data.name, id: inv?.id || data.id, phone: data.phone };
     } catch (e) {
-      console.error('investor login failed:', e);
+      console.error('investor login threw:', e);
       return { ok: false, err: "SERVICE_UNAVAILABLE" };
     }
   },
@@ -245,15 +248,12 @@ const api = {
   adminLogin: async (email, pw) => {
     const cleanEmail = (email || "").trim().toLowerCase();
     try {
-      console.log('[adminLogin] querying for:', JSON.stringify(cleanEmail));
       const { data, error } = await supabase
         .from('users')
         .select('id, name, password_hash, role')
         .eq('email', cleanEmail)
         .eq('role', 'admin')
         .single();
-      console.log('[adminLogin] query error:', error);
-      console.log('[adminLogin] query returned row:', data ? 'YES' : 'NO');
       if (error) return { ok: false, err: "LOOKUP_ERROR", detail: error.message };
       if (!data) return { ok: false, err: "NO_ADMIN_ROW" };
 
@@ -261,8 +261,6 @@ const api = {
         plaintext: pw,
         hash: data.password_hash
       });
-      console.log('[adminLogin] verify_password error:', rpcErr);
-      console.log('[adminLogin] verify_password result:', valid);
       if (rpcErr) return { ok: false, err: "VERIFY_ERROR", detail: rpcErr.message };
       if (!valid) return { ok: false, err: "WRONG_PASSWORD" };
       return { ok: true, name: data.name };
@@ -849,7 +847,7 @@ const LoginScreen = ({nav,data}) => {
   const [email,setEmail]=useState(data?.email||""); const [pw,setPw]=useState("");
   const [loading,setLoading]=useState(false); const [alert,setAlert]=useState(null); const [errs,setErrs]=useState({});
   const [showForgot,setShowForgot]=useState(false);
-  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email required";if(!pw.length)e.pw="Enter password";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.login(email,pw);setLoading(false);if(r.ok){setAlert({type:"success",msg:`Welcome back, ${r.name}.`});setTimeout(()=>nav(V.IDASH,null,r),700);}else setAlert({type:"error",msg:"Incorrect email or password."});};
+  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email required";if(!pw.length)e.pw="Enter password";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.login(email,pw);setLoading(false);if(r.ok){setAlert({type:"success",msg:`Welcome back, ${r.name}.`});setTimeout(()=>nav(V.IDASH,null,r),700);}else setAlert({type:"error",msg:r.err==="SERVICE_UNAVAILABLE"?"Cannot reach the server. Check your connection and try again.":r.err==="WRONG_PASSWORD"?"Incorrect password.":r.err==="NO_ACCOUNT"?"No account found for that email.":r.err==="LOOKUP_ERROR"?("Lookup failed: "+(r.detail||"")):r.err==="VERIFY_ERROR"?("Verify failed: "+(r.detail||"")):"Incorrect email or password."});};
   return(
     <Shell nav={nav} badge="Investor Portal" title={`Welcome back${data?.name?", "+data.name.split(" ")[0]:""}`} sub={data?.justCreated?"Sign in with your new credentials.":"Sign in to your dashboard."}>
       <button onClick={()=>nav(V.PHONE)} className="text-xs text-white/30 hover:text-white/60">← Back</button>
