@@ -4006,8 +4006,12 @@ const ProfitCSVScreen=({nav,cycles,investors:investorsProp,onApply})=>{
   },[]);
 
   const cycle=cycles.find(c=>c.id===cycleId);
-  // Use all active investors since cycle.member_ids is not reliably populated
-  const members=investors.filter(i=>i.status==="active");
+  // Use all active investors since cycle.member_ids is not reliably populated.
+  // The company is EXCLUDED deliberately: its share of profit comes from
+  // actualSplit(), not from a pro-rata slice of the investor pool. Including it
+  // here would (a) hand it a second share on top of the split, and (b) divide
+  // its capital by cycle.pool, which no longer contains it.
+  const members=investors.filter(i=>i.status==="active" && i.id!=="company");
   const totalProfitNum=parseAmt(totalProfit);
   const templateCSV=cycle?buildTemplateCSV(members):"";
 
