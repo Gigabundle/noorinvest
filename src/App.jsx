@@ -430,6 +430,7 @@ const api = {
         start: c.start_date,
         end: c.end_date,
         pool: Number(c.pool),
+        company_capital: c.company_capital != null ? Number(c.company_capital) : null,
         target_pool: Number(c.target_pool),
         company_stake_pct: Number(c.company_stake_pct),
         investor_split: Number(c.investor_split),
@@ -4636,6 +4637,9 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
         start_date:c.start,
         end_date:c.end,
         pool:c.pool,
+        // Preserve company_capital — omitting it from an upsert writes NULL over
+        // it, which silently reverts actualSplit to the legacy stored ratio.
+        company_capital:c.company_capital ?? null,
         target_pool:c.target_pool,
         company_stake_pct:c.company_stake_pct,
         investor_split:c.investor_split,
@@ -4832,4 +4836,3 @@ export default function NoorInvest() {
     </div>
   );
 }
-
