@@ -70,7 +70,15 @@ const parseAmt= s  => Number(String(s).replace(/,/g,""))||0;
 const netCap  = inv=> Math.max(0,inv.capital-inv.approved_withdrawals);
 // Dynamic profit split based on actual capital positions
 // Company capital = pool * (company_stake_pct / investor_split) — original agreed terms
-const companyCapital = c => c.investor_split>0 ? c.pool*(c.company_stake_pct/c.investor_split) : 0;
+// Company capital in a cycle. Cycles that carry a maintained company_capital
+// (set by approve_payment) use the real figure, so actualSplit reflects actual
+// positions and moves when the company acquires or divests a stake.
+// Legacy/closed cycles have company_capital = null and fall back to the stored
+// ratio, preserving their already-distributed profit exactly as it was.
+const companyCapital = c => {
+  if (c.company_capital != null && c.company_capital !== "") return Number(c.company_capital);
+  return c.investor_split>0 ? c.pool*(c.company_stake_pct/c.investor_split) : 0;
+};
 // Actual split % derived from real capital positions (changes as slots are acquired)
 const actualSplit = c => {
   const cc = companyCapital(c);
@@ -4824,3 +4832,4 @@ export default function NoorInvest() {
     </div>
   );
 }
+
