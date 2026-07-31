@@ -67,7 +67,13 @@ const fmtDate = d  => { try{return new Date(d).toLocaleDateString("en-GB",{day:"
 const todayStr = () => new Date().toISOString().slice(0,10);
 const fmtAmt  = v  => { const d=String(v).replace(/[^\d]/g,""); return d?Number(d).toLocaleString("en-NG"):""; };
 const parseAmt= s  => Number(String(s).replace(/,/g,""))||0;
-const netCap  = inv=> Math.max(0,inv.capital-inv.approved_withdrawals);
+// Available capital = capital. Capital only ever leaves an investor's position
+// through an approved market sale, which reduces `capital` directly.
+// It previously subtracted approved_withdrawals, but that column holds PROFIT
+// already paid out (see the profit-share display in the cycle report), so the
+// subtraction was quietly shrinking each investor's carried-forward capital by
+// the profit they had earned.
+const netCap  = inv=> Math.max(0, Number(inv.capital)||0);
 // Dynamic profit split based on actual capital positions
 // Company capital = pool * (company_stake_pct / investor_split) — original agreed terms
 // Company capital in a cycle. Cycles that carry a maintained company_capital
@@ -3028,7 +3034,7 @@ const AddMembersScreen=({cycle,nav,onAdd})=>{
                   </div>
                   <p className="text-[10px] text-white/40">
                     {isLocked?"Already in an active cycle":
-                    <>Prev: {fmt(inv.capital)}{inv.approved_withdrawals>0&&<span className="text-amber-400"> − {fmt(inv.approved_withdrawals)}</span>} → <span className="text-blue-400 font-bold">Net: {fmt(net)}</span></>}
+                    <>Carry forward: <span className="text-blue-400 font-bold">{fmt(net)}</span></>}
                   </p>
                 </div>
               </button>
@@ -3336,7 +3342,7 @@ const MembersScreen=({investors,setInvestors})=>{
     "",
     "INVESTMENT POSITION",
     `Capital: ${fmt(inv.capital)}`,
-    `Approved Withdrawals: ${fmt(inv.approved_withdrawals)}`,
+    `Profit Paid Out: ${fmt(inv.approved_withdrawals)}`,
     `Net Available: ${fmt(netCap(inv))}`,
     `Stake: ${inv.stake}%`,
     `Profit Share (last cycle): ${fmt(inv.profit)}`,
