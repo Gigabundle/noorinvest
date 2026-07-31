@@ -89,7 +89,9 @@ const actualSplit = c => {
     companyPct: Number(((cc/total)*100).toFixed(4)),
   };
 };
-const addAudit = (inv, action) => ({...inv, auditLog:[...(inv.auditLog||[]), {date:new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}), action}]});
+// NOTE: the old client-only addAudit() has been removed. Audit entries are now
+// written to the audit_log table in Supabase via api.writeAudit(), so they
+// survive a page refresh instead of living only in React state.
 
 // Pro-Rata engine. Assumes full-cycle participation since per-investor entry-date tracking
 // is not yet in this data model — every investor in a cycle is treated as capital-weighted
@@ -445,8 +447,70 @@ const api = {
     } catch { return null; }
   },
 
-  getAllInvestors: async () => {
+  // ── Audit trail ────────────────────────────────────────────────────────────
+  writeAudit: async (entityType, entityId, entityName, action, detail) => {
     try {
+      const { error } = await supabase.from('audit_log').insert({
+        entity_type: entityType,
+        entity_id: String(entityId),
+        entity_name: entityName || null,
+        action,
+        detail: detail || null,
+      });
+      if (error) { console.error('writeAudit failed:', error); return false; }
+      return true;
+    } catch (e) { console.error('writeAudit threw:', e); return false; }
+  },
+
+  getAudit: async (entityType, entityId) => {
+    try {
+      let q = supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(100);
+      if (entityType) q = q.eq('entity_type', entityType);
+      if (entityId)   q = q.eq('entity_id', String(entityId));
+      const { data, error } = await q;
+      if (error) { console.error('getAudit failed:', error); return null; }
+      return data;
+    } catch (e) { console.error('getAudit threw:', e); return null; }
+  },
+
+  // Persist admin edits to an investor. Capital is deliberately NOT accepted —
+  // capital may only move through the approval flow, never by direct edit.
+  updateInvestor: async (id, fields) => {
+    try {
+      const payload = {
+        name: fields.name,
+        phone: fields.phone,
+        email: fields.email,
+        bank: fields.bank,
+        account: fields.account,
+        address: fields.address,
+        nok_name: fields.nokName,
+        nok_phone: fields.nokPhone,
+        nok_rel: fields.nokRel,
+        nok_addr: fields.nokAddr,
+      };
+      Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+      const { error } = await supabase.from('investors').update(payload).eq('id', id);
+      if (error) { console.error('updateInvestor failed:', error); return { ok: false, err: error.message }; }
+      return { ok: true };
+    } catch (e) {
+      console.error('updateInvestor threw:', e);
+      return { ok: false, err: String(e) };
+    }
+  },
+
+  setInvestorStatus: async (id, status) => {
+    try {
+      const { error } = await supabase.from('investors').update({ status }).eq('id', id);
+      if (error) { console.error('setInvestorStatus failed:', error); return { ok: false, err: error.message }; }
+      return { ok: true };
+    } catch (e) {
+      console.error('setInvestorStatus threw:', e);
+      return { ok: false, err: String(e) };
+    }
+  },
+
+  getAllInvestors: async () => {    try {
       const { data, error } = await supabase
         .from('investors')
         .select('*')
@@ -1187,10 +1251,14 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
   const profitDays=getDays(profit);
   const capDays=getDays(type==="profit_part"?capParsed:capital);
   const maxDays=Math.max(profit>0?profitDays:0,["profit_part","profit_full","capital_mid"].includes(type)?capDays:0);
-  const profitAmt=type!=="capital_mid"?profit:0;
-  const capToList=type==="profit_part"?capParsed:["profit_full","capital_mid"].includes(type)?capital:0;
-
   const profitAlreadyRequested=investor.profit_withdrawn;
+
+  // profitAmt must be 0 when a profit request is already pending. The
+  // "List my capital for sale" option below reuses id "profit_full", so
+  // without this guard re-listing capital would submit a SECOND profit
+  // withdrawal for the same profit — a double payout.
+  const profitAmt=(type!=="capital_mid" && !profitAlreadyRequested)?profit:0;
+  const capToList=type==="profit_part"?capParsed:["profit_full","capital_mid"].includes(type)?capital:0;
 
   const opts=isClosed
     ?[
@@ -1218,8 +1286,10 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
     </div>
   );
 
-  // Show "already submitted" whenever profit_withdrawn is true OR withdrawal was just submitted this session
-  if(investor.profit_withdrawn || withdrawalPending) return(
+  // A pending profit request must NOT block capital listing — they are separate
+  // paths. Only block when there is genuinely nothing left for the investor to
+  // do, i.e. profit already requested AND no capital remaining to list.
+  if((investor.profit_withdrawn || withdrawalPending) && !(capital>0)) return(
     <div className="space-y-5 pb-24 flex flex-col items-center text-center pt-12">
       <div className="w-16 h-16 rounded-full bg-blue-700/10 border-2 border-blue-700/30 flex items-center justify-center"><CheckCircle className="w-8 h-8 text-blue-400"/></div>
       <div><h2 className="text-xl font-black text-white">Request Already Submitted</h2><p className="text-sm text-white/40 mt-2 max-w-xs leading-relaxed">Your withdrawal request is pending admin approval. You will be notified once it is processed.</p></div>
@@ -3105,6 +3175,14 @@ const MembersScreen=({investors,setInvestors})=>{
   const [selectedIds,setSelectedIds]=useState([]);
   const [showStatement,setShowStatement]=useState(false);
   const [copied,setCopied]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [saveErr,setSaveErr]=useState("");
+  const [auditRows,setAuditRows]=useState([]);
+
+  const loadAudit=async id=>{
+    const rows=await api.getAudit('investor', id);
+    setAuditRows(rows||[]);
+  };
 
   // Password reset state
   const [showPwReset,setShowPwReset]=useState(false);
@@ -3191,34 +3269,59 @@ const MembersScreen=({investors,setInvestors})=>{
 
   const sd=k=>v=>setDraft(d=>({...d,[k]:v}));
 
-  const save=()=>{
+  const save=async ()=>{
     const changes=[];
     if(draft.name!==sel.name)changes.push(`Name: ${sel.name} → ${draft.name}`);
     if(draft.phone!==sel.phone)changes.push(`Phone: ${sel.phone} → ${draft.phone}`);
     if(draft.email!==sel.email)changes.push(`Email: ${sel.email} → ${draft.email}`);
     if(draft.bank!==sel.bank)changes.push(`Bank: ${sel.bank} → ${draft.bank}`);
     if(draft.account!==sel.account)changes.push(`Account: ${sel.account} → ${draft.account}`);
-    if(draft.capital!==sel.capital)changes.push(`Capital: ${fmt(sel.capital)} → ${fmt(draft.capital)}`);
     if(draft.nokName!==sel.nokName)changes.push(`NOK Name: ${sel.nokName} → ${draft.nokName}`);
     if(draft.nokPhone!==sel.nokPhone)changes.push(`NOK Phone: ${sel.nokPhone} → ${draft.nokPhone}`);
     if(draft.nokRel!==sel.nokRel)changes.push(`NOK Relationship: ${sel.nokRel} → ${draft.nokRel}`);
     if(draft.nokAddr!==sel.nokAddr)changes.push(`NOK Address: ${sel.nokAddr} → ${draft.nokAddr}`);
-    const updated=changes.length?addAudit(draft,changes.join("; ")):draft;
-    setInvestors(is=>is.map(i=>i.id===updated.id?{...updated}:i));
-    setSel({...updated});setEditing(false);setSaved(true);setTimeout(()=>setSaved(false),2500);
+
+    if(!changes.length){ setEditing(false); return; }
+
+    setSaving(true);
+    const res=await api.updateInvestor(sel.id, draft);
+    setSaving(false);
+    if(!res.ok){
+      setSaveErr(res.err||"Could not save. Please try again.");
+      return;
+    }
+    setSaveErr("");
+
+    await api.writeAudit('investor', sel.id, draft.name||sel.name, 'edit', changes.join("; "));
+
+    setInvestors(is=>is.map(i=>i.id===sel.id?{...i,...draft}:i));
+    setSel({...sel,...draft});
+    setEditing(false);setSaved(true);setTimeout(()=>setSaved(false),2500);
+    loadAudit(sel.id);
   };
 
-  const toggleStatus=id=>{
-    const newStatus=investors.find(i=>i.id===id)?.status==="active"?"inactive":"active";
+  const toggleStatus=async id=>{
+    const inv=investors.find(i=>i.id===id);
+    const newStatus=inv?.status==="active"?"inactive":"active";
     const label=newStatus==="inactive"?"Account deactivated":"Account reactivated";
-    setInvestors(is=>is.map(i=>i.id===id?addAudit({...i,status:newStatus},label):i));
-    if(sel?.id===id)setSel(s=>addAudit({...s,status:newStatus},label));
+    const res=await api.setInvestorStatus(id,newStatus);
+    if(!res.ok){ setSaveErr(res.err||"Could not update status."); return; }
+    setSaveErr("");
+    await api.writeAudit('investor', id, inv?.name, 'status_change', label);
+    setInvestors(is=>is.map(i=>i.id===id?{...i,status:newStatus}:i));
+    if(sel?.id===id){ setSel(s=>({...s,status:newStatus})); loadAudit(id); }
   };
 
   const toggleSelectId=id=>setSelectedIds(ids=>ids.includes(id)?ids.filter(x=>x!==id):[...ids,id]);
-  const bulkSetStatus=newStatus=>{
+  const bulkSetStatus=async newStatus=>{
     const label=newStatus==="inactive"?"Account deactivated (bulk action)":"Account reactivated (bulk action)";
-    setInvestors(is=>is.map(i=>selectedIds.includes(i.id)?addAudit({...i,status:newStatus},label):i));
+    for(const id of selectedIds){
+      const inv=investors.find(i=>i.id===id);
+      const res=await api.setInvestorStatus(id,newStatus);
+      if(!res.ok){ console.error('bulkSetStatus failed for',id,res.err); continue; }
+      await api.writeAudit('investor', id, inv?.name, 'status_change', label);
+    }
+    setInvestors(is=>is.map(i=>selectedIds.includes(i.id)?{...i,status:newStatus}:i));
     setSelectedIds([]);setSelectMode(false);
   };
 
@@ -3261,9 +3364,10 @@ const MembersScreen=({investors,setInvestors})=>{
       <div className="flex items-center justify-between">
         <button onClick={()=>{setSel(null);setEditing(false);setShowStatement(false);}} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back</button>
         {!editing?<button onClick={()=>{setDraft({...sel});setEditing(true);}} className="flex items-center gap-1.5 text-xs font-bold text-blue-400 border border-blue-700/30 px-3 py-1.5 rounded-lg hover:bg-blue-700/10"><Edit2 className="w-3.5 h-3.5"/>Edit</button>
-          :<div className="flex gap-2"><button onClick={()=>{setDraft({...sel});setEditing(false);}} className="text-xs text-white/40 border border-white/10 px-3 py-1.5 rounded-lg">Cancel</button><button onClick={save} className="flex items-center gap-1 text-xs font-bold text-white bg-blue-700 px-3 py-1.5 rounded-lg"><Save className="w-3 h-3"/>Save</button></div>}
+          :<div className="flex gap-2"><button onClick={()=>{setDraft({...sel});setEditing(false);setSaveErr("");}} className="text-xs text-white/40 border border-white/10 px-3 py-1.5 rounded-lg">Cancel</button><button onClick={save} disabled={saving} className={`flex items-center gap-1 text-xs font-bold text-white px-3 py-1.5 rounded-lg ${saving?"bg-white/10 text-white/40 cursor-not-allowed":"bg-blue-700"}`}><Save className="w-3 h-3"/>{saving?"Saving…":"Save"}</button></div>}
       </div>
       {saved&&<Banner type="success" msg="Investor details updated."/>}
+      {saveErr&&<Banner type="error" msg={saveErr}/>}
       <div className="flex items-center gap-3 p-4 bg-white/5 border border-white/10 rounded-2xl">
         <div className="w-12 h-12 rounded-full bg-blue-700/20 border border-blue-700/30 flex items-center justify-center flex-shrink-0"><User className="w-6 h-6 text-blue-400"/></div>
         <div className="flex-1 min-w-0"><p className="text-base font-black text-white">{sel.name}</p><p className="text-xs text-white/40">{sel.email}</p></div>
@@ -3271,7 +3375,7 @@ const MembersScreen=({investors,setInvestors})=>{
       </div>
       <Card className="space-y-3"><Label>Investment Position</Label>
         {[["Capital",fmt(sel.capital)],["Net Available",fmt(netCap(sel))],["Stake",`${sel.stake}%`],["Profit Share",fmt(sel.profit)]].map(([l,v])=>(<div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-emerald-400 font-bold font-mono">{v}</span></div>))}
-        {editing&&<TF label="Capital Amount (₦)" value={fmtAmt(draft?.capital||"")} onChange={v=>sd("capital")(parseAmt(v))}/>}
+        {editing&&<p className="text-[10px] text-white/30 leading-relaxed pt-1">Capital cannot be edited here. It changes only through approved payments, withdrawals and market sales, so the audit trail stays accurate.</p>}
       </Card>
       <Card className="space-y-3"><Label>Personal Details</Label>
         <EF label="Full Name" value={editing?draft.name:sel.name}   onChange={sd("name")}/>
@@ -3322,17 +3426,18 @@ const MembersScreen=({investors,setInvestors})=>{
         </Card>
       )}
 
-      {sel.auditLog&&sel.auditLog.length>0&&(
-        <Card className="space-y-2">
-          <Label>Audit Trail</Label>
-          {[...sel.auditLog].reverse().map((log,i)=>(
-            <div key={i} className="flex items-start gap-2 text-xs border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
-              <span className="text-white/30 flex-shrink-0">{log.date}</span>
-              <span className="text-white/60">{log.action}</span>
-            </div>
-          ))}
-        </Card>
-      )}
+      <Card className="space-y-2">
+        <Label>Audit Trail</Label>
+        {auditRows.length===0
+          ? <p className="text-xs text-white/30">No recorded changes yet.</p>
+          : auditRows.map(log=>(
+              <div key={log.id} className="flex items-start gap-2 text-xs border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
+                <span className="text-white/30 flex-shrink-0">{new Date(log.created_at).toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+                <span className="text-white/60">{log.detail||log.action}</span>
+              </div>
+            ))
+        }
+      </Card>
 
       <button onClick={()=>toggleStatus(sel.id)} className={`w-full py-3 rounded-xl text-sm font-bold border transition-all ${sel.status==="active"?"bg-red-700/10 border-red-700/30 text-red-400 hover:bg-red-700/20":"bg-emerald-700/10 border-emerald-700/30 text-emerald-400 hover:bg-emerald-700/20"}`}>
         {sel.status==="active"?"Deactivate Account":"Reactivate Account"}
@@ -3372,7 +3477,7 @@ const MembersScreen=({investors,setInvestors})=>{
               <Pill label={inv.status==="active"?"Active":"Inactive"} color={inv.status==="active"?"bg-emerald-700/20 border-emerald-700/30 text-emerald-400":"bg-slate-700/50 border-slate-600 text-slate-400"}/>
             </button>
           ):(
-            <button key={inv.id} onClick={()=>setSel(inv)} className={`w-full flex items-center gap-3 p-3.5 border rounded-xl hover:border-white/20 transition-all text-left ${inv.id==='company'?'bg-purple-700/10 border-purple-700/30':'bg-white/5 border-white/10'}`}>
+            <button key={inv.id} onClick={()=>{setSel(inv);setSaveErr("");setAuditRows([]);loadAudit(inv.id);}} className={`w-full flex items-center gap-3 p-3.5 border rounded-xl hover:border-white/20 transition-all text-left ${inv.id==='company'?'bg-purple-700/10 border-purple-700/30':'bg-white/5 border-white/10'}`}>
               <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${inv.id==='company'?'bg-purple-700/20 border border-purple-700/40':'bg-blue-700/20 border border-blue-700/30'}`}>
                 {inv.id==='company'?<Building2 className="w-4 h-4 text-purple-400"/>:<User className="w-4 h-4 text-blue-400"/>}
               </div>
@@ -3458,7 +3563,7 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const approvePay=async (id)=>{
     let result;
     try {
-      const { data, error } = await supabase.rpc('approve_payment', { pay_id: id });
+      const { data, error } = await supabase.rpc('approve_payment_logged', { pay_id: id });
       if(error){
         console.error('approvePay RPC error:',error);
         alert('Approval failed to reach the server. Please try again.');
