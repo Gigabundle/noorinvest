@@ -1475,10 +1475,6 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
       )
     : [INVESTOR_CYCLE];
   const c = myCycles[0] || INVESTOR_CYCLE;
-  const investor_profit  = c.total_profit*(c.investor_split/100);
-  const company_retained = c.total_profit*(c.company_stake_pct/100);
-  const company_capital  = companyCapital(c);
-  const total_portfolio  = c.pool + company_capital;
   return(
     <div className="space-y-5 pb-24">
       <h2 className="text-xl font-black text-white">Profit History</h2>
@@ -1491,15 +1487,22 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
       )}
       {myCycles.map(c=>{
         const {investorPct, companyPct} = actualSplit(c);
-        const investor_profit  = (c.total_profit||0)*(investorPct/100);
-        const company_retained = (c.total_profit||0)*(companyPct/100);
         const company_capital  = companyCapital(c);
-        const total_portfolio  = c.pool + company_capital;
+        const total_portfolio  = (c.pool||0) + company_capital;
+        // Use the exact capital ratio rather than the 4dp percentage, so this
+        // matches the published report to the kobo instead of drifting by ~1.50.
+        const investor_profit  = total_portfolio>0 ? (c.total_profit||0)*(c.pool/total_portfolio) : 0;
+        const company_retained = (c.total_profit||0) - investor_profit;
+        // Cycles closed before profit_rate was recorded show it as null. Derive
+        // it: the investors' share as a percentage of the investor pool.
+        const displayRate = (c.profit_rate!=null && c.profit_rate!=="")
+          ? c.profit_rate
+          : (c.pool>0 ? (investor_profit/c.pool*100).toFixed(4) : "—");
         return(
           <div key={c.id} className="space-y-4">
             <Card className="space-y-3">
               <Label>Cycle Summary — {c.name}</Label>
-              {[[`Total Portfolio`,fmt(total_portfolio)],[`Investor Pool (${investorPct.toFixed(2)}%)`,fmt(c.pool)],[`Company Stake (${companyPct.toFixed(2)}%)`,fmt(company_capital)],[`Net Profit`,fmt(c.total_profit)],[`Investor Profit`,fmt(investor_profit)],[`Company Retained`,fmt(company_retained)],[`Profit Rate`,`${c.profit_rate}%`]].map(([l,v])=>(
+              {[[`Total Portfolio`,fmt(total_portfolio)],[`Investor Pool (${investorPct.toFixed(2)}%)`,fmt(c.pool)],[`Company Stake (${companyPct.toFixed(2)}%)`,fmt(company_capital)],[`Net Profit`,fmt(c.total_profit)],[`Investor Profit`,fmt(investor_profit)],[`Company Retained`,fmt(company_retained)],[`Profit Rate`,`${displayRate}%`]].map(([l,v])=>(
                 <div key={l} className="flex justify-between text-sm"><span className="text-white/40">{l}</span><span className="text-white font-semibold font-mono">{v}</span></div>
               ))}
             </Card>
@@ -1514,7 +1517,7 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
                 <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-2">
                   <p className="text-sm text-white leading-relaxed">
                     Your <strong className="text-blue-400">{fmt(investor.capital)}</strong> was <strong className="text-blue-400">{investor.stake}%</strong> of the total fund.<br/>
-                    You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.approved_withdrawals||investor.profit)}</strong>.
+                    You received <strong className="text-emerald-400">{investor.stake}%</strong> of the <strong className="text-white">{fmt(investor_profit)}</strong> profit pool = <strong className="text-emerald-400">{fmt(investor.profit)}</strong>.
                   </p>
                 </div>
                 <button onClick={()=>setShowFormula(!showFormula)} className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors w-full">
@@ -1529,7 +1532,7 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
-                  {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.approved_withdrawals||investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${c.profit_rate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
+                  {[{l:"Capital Invested",v:fmt(investor.capital),color:"text-white"},{l:"Your Stake",v:`${investor.stake}%`,color:"text-white"},{l:"Profit Share",v:fmt(investor.profit),color:"text-emerald-400"},{l:"Profit Rate",v:`${displayRate}%`,color:"text-blue-400"}].map(({l,v,color})=>(
                     <div key={l}><Label>{l}</Label><p className={`text-sm font-black font-mono ${color}`}>{v}</p></div>
                   ))}
                 </div>
