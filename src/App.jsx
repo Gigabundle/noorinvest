@@ -191,14 +191,14 @@ const api = {
       const { data, error } = await supabase
         .from('users')
         .select('phone, name, has_account')
-        .eq('phone', phone)
-        .single();
-      if (error || !data) return { found: false };
+        .eq('phone', (phone||"").trim())
+        .maybeSingle();
+      if (error) { console.error('phoneLookup failed:', error); return { found: false }; }
+      if (!data) return { found: false };
       return { found: true, name: data.name, hasAccount: data.has_account };
-    } catch {
-      // fallback to in-memory
-      const r = store.find(u => u.phone === phone);
-      return r ? { found: true, name: r.name, hasAccount: r.hasAccount } : { found: false };
+    } catch (e) {
+      console.error('phoneLookup threw:', e);
+      return { found: false };
     }
   },
 
@@ -236,9 +236,10 @@ const api = {
         .from('users')
         .select('id, name, phone, password_hash, role')
         .eq('email', cleanEmail)
-        .single();
+        .maybeSingle();
       if (error) return { ok: false, err: "LOOKUP_ERROR", detail: error.message };
       if (!data) return { ok: false, err: "NO_ACCOUNT" };
+      if (!data.password_hash) return { ok: false, err: "NOT_REGISTERED" };
       // Server-side bcrypt verification
       const { data: valid, error: rpcErr } = await supabase.rpc('verify_password', {
         plaintext: pw,
@@ -266,7 +267,7 @@ const api = {
         .select('id, name, password_hash, role')
         .eq('email', cleanEmail)
         .eq('role', 'admin')
-        .single();
+        .maybeSingle();
       if (error) return { ok: false, err: "LOOKUP_ERROR", detail: error.message };
       if (!data) return { ok: false, err: "NO_ADMIN_ROW" };
 
@@ -923,7 +924,7 @@ const LoginScreen = ({nav,data}) => {
   const [email,setEmail]=useState(data?.email||""); const [pw,setPw]=useState("");
   const [loading,setLoading]=useState(false); const [alert,setAlert]=useState(null); const [errs,setErrs]=useState({});
   const [showForgot,setShowForgot]=useState(false);
-  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email required";if(!pw.length)e.pw="Enter password";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.login(email,pw);setLoading(false);if(r.ok){setAlert({type:"success",msg:`Welcome back, ${r.name}.`});setTimeout(()=>nav(V.IDASH,null,r),700);}else setAlert({type:"error",msg:r.err==="SERVICE_UNAVAILABLE"?"Cannot reach the server. Check your connection and try again.":r.err==="WRONG_PASSWORD"?"Incorrect password.":r.err==="NO_ACCOUNT"?"No account found for that email.":r.err==="LOOKUP_ERROR"?("Lookup failed: "+(r.detail||"")):r.err==="VERIFY_ERROR"?("Verify failed: "+(r.detail||"")):"Incorrect email or password."});};
+  const go=async()=>{setAlert(null);const e={};if(!email.includes("@"))e.email="Valid email required";if(!pw.length)e.pw="Enter password";setErrs(e);if(Object.keys(e).length)return;setLoading(true);const r=await api.login(email,pw);setLoading(false);if(r.ok){setAlert({type:"success",msg:`Welcome back, ${r.name}.`});setTimeout(()=>nav(V.IDASH,null,r),700);}else setAlert({type:"error",msg:r.err==="SERVICE_UNAVAILABLE"?"Cannot reach the server. Check your connection and try again.":r.err==="WRONG_PASSWORD"?"Incorrect password.":r.err==="NOT_REGISTERED"?"You have not set up your login yet. Go back and use \"Find your account\" with your phone number to create your password.":r.err==="NO_ACCOUNT"?"No account found for that email. If this is your first time, go back and use \"Find your account\" with your phone number.":r.err==="LOOKUP_ERROR"?("Lookup failed: "+(r.detail||"")):r.err==="VERIFY_ERROR"?("Verify failed: "+(r.detail||"")):"Incorrect email or password."});};
   return(
     <Shell nav={nav} badge="Investor Portal" title={`Welcome back${data?.name?", "+data.name.split(" ")[0]:""}`} sub={data?.justCreated?"Sign in with your new credentials.":"Sign in to your dashboard."}>
       <button onClick={()=>nav(V.PHONE)} className="text-xs text-white/30 hover:text-white/60">← Back</button>
