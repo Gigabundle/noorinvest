@@ -1145,14 +1145,27 @@ const HomeScreen = ({nav,investor,cycles}) => {
   // Derive current cycle from React state so re-renders pick up live data
   const currentCycle = cycles?.find(c=>c.status==="open") || cycles?.find(c=>c.status==="closed") || INVESTOR_CYCLE;
   const cycleName = currentCycle?.name || INVESTOR_CYCLE.name;
-  const profitReady = INVESTOR_CYCLE.status==="closed" && !investor.profit_withdrawn;
+  // The profit sitting in investor.profit was earned in the most recently
+  // CLOSED cycle, not the one currently running — capital rolls straight over,
+  // so the open cycle has not produced profit yet.
+  const profitCycleName = (() => {
+    const closed = (cycles||[]).filter(c=>c.status==="closed" && c.end);
+    if(!closed.length) return cycleName;
+    return closed.reduce((a,b)=>new Date(a.end)>new Date(b.end)?a:b).name;
+  })();
+
+  // Profit is withdrawable whenever there is an allocation the investor has not
+  // yet requested. It is NOT gated on the current cycle being closed: capital
+  // rolls straight from one cycle into the next, so there is no gap during which
+  // a "closed" cycle is the current one.
+  const profitReady = Number(investor.profit||0) > 0 && !investor.profit_withdrawn;
   return (
     <div className="space-y-5 pb-24">
       <div className="flex items-start justify-between">
         <div><p className="text-xs text-white/40 font-medium">{getGreeting()},</p><h1 className="text-xl font-black text-white">{investor.name}</h1></div>
       </div>
 
-      {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${cycleName} is ready to withdraw.`}/>}
+      {profitReady&&<Banner type="success" msg={`Your profit share of ${fmt(investor.profit)} from ${profitCycleName} is ready to withdraw.`}/>}
 
       {/* Capital card */}
       <div className="rounded-2xl p-5 relative overflow-hidden" style={{background:"linear-gradient(135deg,#1a3a6b 0%,#1D4ED8 100%)"}}>
@@ -1245,7 +1258,6 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
   const [errs,setErrs]=useState({});
   const [done,setDone]=useState(false);
   const [submitting,setSubmitting]=useState(false);
-  const isClosed=INVESTOR_CYCLE.status==="closed";
   const profit=investor.profit;
   // Use rawCapital (not displayCapital) so capToList reflects actual capital
   const capital=rawCapital!==undefined?rawCapital:investor.capital;
@@ -1262,14 +1274,18 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
   const profitAmt=(type!=="capital_mid" && !profitAlreadyRequested)?profit:0;
   const capToList=type==="profit_part"?capParsed:["profit_full","capital_mid"].includes(type)?capital:0;
 
-  const opts=isClosed
+  // Options depend on whether there is profit to withdraw, not on cycle status.
+  // Capital rolls straight into the next cycle, so the current cycle is normally
+  // open even when a completed cycle's profit is sitting ready to be claimed.
+  const hasProfit=Number(profit||0)>0;
+  const opts=hasProfit
     ?[
       ...(!profitAlreadyRequested?[{id:"profit_only", label:"Withdraw profit share only",        sub:`Receive ${fmt(profit)}. Your ${fmt(capital)} stays invested.`}]:[]),
       ...(!profitAlreadyRequested?[{id:"profit_part", label:"Withdraw profit + part of capital", sub:`Receive ${fmt(profit)} and list a chosen portion for sale.`}]:[]),
       ...(!profitAlreadyRequested?[{id:"profit_full", label:"Withdraw profit + all capital",     sub:`Receive ${fmt(profit)} and list your full ${fmt(capital)} on the market.`}]:[]),
       ...(profitAlreadyRequested&&capital>0?[{id:"profit_full", label:"List my capital for sale", sub:`Profit withdrawal already submitted. List your ${fmt(capital)} on the secondary market.`}]:[]),
     ]
-    :[{id:"capital_mid", label:"List my investment for sale",       sub:"Round still running. List your slot. Profit for days held pays when the cycle ends."}];
+    :[{id:"capital_mid", label:"List my investment for sale",       sub:"No profit allocated yet. List your slot now — profit for days held pays when the cycle ends."}];
 
   const next=()=>{
     const e={};
@@ -1338,9 +1354,9 @@ const WithdrawScreen = ({nav,investor,rawCapital,setInvestor,setSlots,setWds,wit
     <div className="space-y-5 pb-24">
       <button onClick={()=>nav(IV.HOME)} className="text-xs text-white/30 hover:text-white/60 flex items-center gap-1">← Back to Home</button>
       <h2 className="text-xl font-black text-white">Withdraw Funds</h2>
-      {!isClosed&&<Banner type="warning" msg="This round is still running. You can sell your capital slot now. Your profit will be calculated and paid when the round ends."/>}
-      {isClosed&&profitAlreadyRequested&&<Banner type="info" msg="Your profit withdrawal is already submitted and pending admin approval. You can still list your capital on the secondary market."/>}
-      {isClosed&&(
+      {!hasProfit&&<Banner type="warning" msg="No profit has been allocated yet. You can sell your capital slot now. Your profit for the days held will be calculated and paid when the cycle ends."/>}
+      {hasProfit&&profitAlreadyRequested&&<Banner type="info" msg="Your profit withdrawal is already submitted and pending admin approval. You can still list your capital on the secondary market."/>}
+      {hasProfit&&(
         <div className="grid grid-cols-2 gap-3">
           <Card className="text-center"><Label>Profit Ready</Label><SmallVal color="text-emerald-400">{fmt(profit)}</SmallVal></Card>
           <Card className="text-center"><Label>Your Capital</Label><SmallVal>{fmt(capital)}</SmallVal></Card>
