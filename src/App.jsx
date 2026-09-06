@@ -1743,7 +1743,10 @@ const MarketScreen = ({slots,setSlots,myListing,setMyListing,investor,setPays,se
   const handleConfirm=async (slotId,amt)=>{
     const slot=slots.find(s=>s.slot_id===slotId);
     const payId=`pay-${Date.now()}`;
-    const amount=slot?.sale_amount||amt;
+    // Use the amount the buyer actually chose. Previously this read
+    // `slot?.sale_amount||amt`, which always took the full slot because
+    // sale_amount is never zero — silently discarding partial purchases.
+    const amount=(amt&&Number(amt)>0)?Number(amt):Number(slot?.sale_amount||0);
     const cycleName=slot?.cycle||slot?.cycle_name||INVESTOR_CYCLE.name;
     const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
 
@@ -3616,12 +3619,20 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
     // No re-fetching needed; the RPC returned the new balances.
     if(result.type==='slot_purchase'){
       setInvestors(is=>is.map(i=>{
-        if(i.id===result.seller_id) return {...i,capital:Number(result.seller_new_capital),stake:Number(result.seller_new_stake),profit_withdrawn:false};
-        if(i.id===result.buyer_id)  return {...i,capital:Number(result.buyer_new_capital), stake:Number(result.buyer_new_stake)};
+        if(i.id===result.seller_id) return {...i,capital:Number(result.seller_new_capital),profit_withdrawn:false};
+        if(i.id===result.buyer_id)  return {...i,capital:Number(result.buyer_new_capital)};
         return i;
       }));
-      setSlots(ss=>ss.map(s=>s.slot_id===result.slot_id?{...s,sold:true,lock:true}:s));
+      // Partial purchases leave the slot listed with the remainder still for sale.
+      setSlots(ss=>ss.map(s=>s.slot_id===result.slot_id
+        ? (result.fully_sold
+            ? {...s,capital:0,sale_amount:0,sold:true,lock:true}
+            : {...s,capital:Number(result.slot_remaining),sale_amount:Math.max(0,Number(s.sale_amount||0)-Number(result.amount)),sold:false,lock:false})
+        : s));
       setPays(ps=>ps.map(p=>p.id===id?{...p,status:'approved'}:p));
+      if(result.partial){
+        alert(`Partial purchase approved. ${fmt(Number(result.amount))} transferred. ${fmt(Number(result.slot_remaining))} remains listed for sale.`);
+      }
     } else if(result.type==='new_investment'){
       setInvestors(is=>is.map(i=>i.id===result.investor_id?{...i,capital:Number(result.investor_new_capital),stake:Number(result.investor_new_stake)}:i));
       setCycles(cs=>cs.map(c=>c.id===result.cycle_id?{...c,pool:Number(result.new_pool)}:c));
@@ -4629,7 +4640,10 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
   const handleAdminConfirm=async (slotId,amt)=>{
     const slot=slots.find(s=>s.slot_id===slotId);
     const payId=`pay-${Date.now()}`;
-    const amount=slot?.sale_amount||amt;
+    // Use the amount the buyer actually chose. Previously this read
+    // `slot?.sale_amount||amt`, which always took the full slot because
+    // sale_amount is never zero — silently discarding partial purchases.
+    const amount=(amt&&Number(amt)>0)?Number(amt):Number(slot?.sale_amount||0);
     const cycleName=slot?.cycle||slot?.cycle_name||INVESTOR_CYCLE.name;
     const dateStr=new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
 
