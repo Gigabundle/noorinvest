@@ -3659,7 +3659,22 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   const adminPayWd=id=>updateWd(id,{status:"approved",adminNote:"Admin-initiated payment"});
 
   const confirmReject=async ()=>{
-    if(rejectModal.type==="pay") updatePay(rejectModal.id,{status:"rejected",rejectReason});
+    if(rejectModal.type==="pay"){
+      const pay=pays.find(p=>p.id===rejectModal.id);
+      await updatePay(rejectModal.id,{status:"rejected",rejectReason});
+      // Releasing the slot is essential. It was locked when the buyer started
+      // the purchase so nobody else could buy it while payment was pending.
+      // Without this the slot stays locked forever and vanishes from the market,
+      // because the market hides anything locked.
+      if(pay?.type==='slot_purchase' && pay?.slot_id){
+        try {
+          const { error } = await supabase.from('market_slots')
+            .update({lock:false}).eq('slot_id',pay.slot_id).eq('sold',false);
+          if(error) console.error('reject: failed to unlock slot',error);
+          else setSlots(ss=>ss.map(s=>s.slot_id===pay.slot_id&&!s.sold?{...s,lock:false}:s));
+        } catch(e){ console.error('reject: unlock slot threw',e); }
+      }
+    }
     else {
       const wd=wds.find(w=>w.id===rejectModal.id);
       if(wd?.status==="pending"){
@@ -3683,7 +3698,18 @@ const ApprovalsScreen=({pays,setPays,wds,setWds,slots,setSlots,investors,setInve
   };
   const bulkRejectPays=async()=>{
     setBulkLoading(true);
-    for(const id of selectedPays){ await updatePay(id,{status:"rejected",rejectReason:bulkRejectReason}); }
+    for(const id of selectedPays){
+      const pay=pays.find(p=>p.id===id);
+      await updatePay(id,{status:"rejected",rejectReason:bulkRejectReason});
+      if(pay?.type==='slot_purchase' && pay?.slot_id){
+        try {
+          const { error } = await supabase.from('market_slots')
+            .update({lock:false}).eq('slot_id',pay.slot_id).eq('sold',false);
+          if(error) console.error('bulk reject: failed to unlock slot',error);
+          else setSlots(ss=>ss.map(s=>s.slot_id===pay.slot_id&&!s.sold?{...s,lock:false}:s));
+        } catch(e){ console.error('bulk reject: unlock slot threw',e); }
+      }
+    }
     setSelectedPays(new Set());setBulkRejectModal(null);setBulkRejectReason("");setBulkLoading(false);
   };
   const bulkApproveWds=async()=>{
