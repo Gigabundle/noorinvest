@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { supabase } from './supabaseClient.js';
 import { Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Shield, Phone, Lock, Mail, User, X, Loader, Star, Building2, CreditCard, Users, MapPin, ScrollText, TrendingUp, LayoutDashboard, RefreshCw, CheckSquare, Settings, Info, Search, Plus, ToggleLeft, ToggleRight, Edit2, Save, Wallet, Archive, Upload, Send, FileText, Home, TrendingDown, ArrowRightLeft, PlusCircle, Bell, BarChart2, ArrowDownLeft, ArrowUpRight, Copy, Clock, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -58,6 +58,266 @@ const INIT_TNC_DRAFT = {
 const INIT_TNC_HISTORY = []; // published versions accumulate here, never edited or deleted once published
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// ── Theme layer ───────────────────────────────────────────────────────────────
+// Dark is the existing design and needs no rules. .theme-light on the root
+// wrapper overrides the neutral white/slate scale. See THEME_CSS for the full
+// override table. Theme choice persists in localStorage under noorinvest_theme.
+const THEME_STORAGE_KEY = 'noorinvest_theme';
+const ThemeContext = createContext({ theme: 'dark', setTheme: () => {} });
+const useTheme = () => useContext(ThemeContext);
+
+const THEME_CSS = `/* ============================================================================
+   NoorInvest theme layer
+   ----------------------------------------------------------------------------
+   Injected once at the root. Dark mode is the existing hardcoded design and
+   needs no rules. .theme-light on the root wrapper overrides the neutral
+   white/slate scale to a dark-on-light scale and darkens the 400-level accent
+   text so it has contrast on a pale background. Coloured tinted backgrounds
+   (bg-blue-700/20 etc) are left alone — they read as pale tints on light.
+
+   Tailwind compiles bg-white/5 to a class literally named bg-white/5, so
+   the slash must be escaped as \\/ in a selector.
+   ========================================================================== */
+
+/* ---------- theme-driven variables (both themes) ---------- */
+.nv-root {
+  --nv-grad-a: #0A1628;
+  --nv-grad-b: #0d1f3c;
+  --nv-grad-c: #071020;
+  --nv-card:   #0d1f3c;
+}
+.nv-root.theme-light {
+  --nv-grad-a: #F4F7FB;
+  --nv-grad-b: #E9EFF7;
+  --nv-grad-c: #DFE7F2;
+  --nv-card:   #FFFFFF;
+}
+
+/* ---------- smooth theme switch: applied for ~350ms while toggling ---------- */
+.nv-root.theme-switching,
+.nv-root.theme-switching * {
+  transition:
+    background-color 300ms ease-in-out,
+    color            300ms ease-in-out,
+    border-color     300ms ease-in-out,
+    fill             300ms ease-in-out,
+    box-shadow       300ms ease-in-out !important;
+}
+
+/* ---------- LIGHT: page backgrounds ---------- */
+.theme-light .bg-slate-950            { background-color: #F4F7FB; }
+.theme-light .bg-slate-950\\/95        { background-color: rgba(244,247,251,.95); }
+.theme-light .bg-slate-900            { background-color: #FFFFFF; }
+.theme-light .bg-slate-900\\/60        { background-color: rgba(255,255,255,.75); }
+.theme-light .bg-slate-700\\/20        { background-color: rgba(15,23,42,.06); }
+.theme-light .bg-slate-700\\/50        { background-color: rgba(15,23,42,.12); }
+.theme-light .bg-\\[\\#0d1f3c\\]         { background-color: #FFFFFF; }
+.theme-light .bg-amber-950\\/95        { background-color: rgba(254,243,199,.97); }
+
+/* ---------- LIGHT: neutral surfaces (bg-white/N -> dark tint) ---------- */
+.theme-light .bg-white\\/3   { background-color: rgba(15,23,42,.03); }
+.theme-light .bg-white\\/5   { background-color: rgba(15,23,42,.045); }
+.theme-light .bg-white\\/10  { background-color: rgba(15,23,42,.08); }
+.theme-light .bg-white\\/20  { background-color: rgba(15,23,42,.14); }
+.theme-light .hover\\:bg-white\\/10:hover     { background-color: rgba(15,23,42,.09); }
+.theme-light .hover\\:bg-slate-700\\/30:hover { background-color: rgba(15,23,42,.10); }
+
+/* ---------- LIGHT: neutral borders ---------- */
+.theme-light .border-white\\/5   { border-color: rgba(15,23,42,.06); }
+.theme-light .border-white\\/10  { border-color: rgba(15,23,42,.10); }
+.theme-light .border-white\\/20  { border-color: rgba(15,23,42,.16); }
+.theme-light .border-white\\/30  { border-color: rgba(15,23,42,.24); }
+.theme-light .border-slate-600  { border-color: #CBD5E1; }
+.theme-light .border-slate-600\\/30 { border-color: rgba(203,213,225,.6); }
+.theme-light .hover\\:border-white\\/20:hover { border-color: rgba(15,23,42,.18); }
+.theme-light .hover\\:border-white\\/30:hover { border-color: rgba(15,23,42,.26); }
+.theme-light .hover\\:border-white\\/40:hover { border-color: rgba(15,23,42,.34); }
+
+/* ---------- LIGHT: neutral text (white -> slate) ---------- */
+.theme-light .text-white       { color: #0F172A; }
+.theme-light .text-white\\/80   { color: rgba(15,23,42,.85); }
+.theme-light .text-white\\/60   { color: rgba(15,23,42,.68); }
+.theme-light .text-white\\/50   { color: rgba(15,23,42,.58); }
+.theme-light .text-white\\/40   { color: rgba(15,23,42,.50); }
+.theme-light .text-white\\/30   { color: rgba(15,23,42,.42); }
+.theme-light .text-white\\/25   { color: rgba(15,23,42,.38); }
+.theme-light .text-white\\/20   { color: rgba(15,23,42,.32); }
+.theme-light .text-slate-400   { color: #475569; }
+.theme-light .text-slate-500   { color: #475569; }
+.theme-light .placeholder-white\\/20::placeholder { color: rgba(15,23,42,.35); }
+.theme-light .hover\\:text-white:hover        { color: #0F172A; }
+.theme-light .hover\\:text-white\\/50:hover    { color: rgba(15,23,42,.6); }
+.theme-light .hover\\:text-white\\/60:hover    { color: rgba(15,23,42,.7); }
+.theme-light .hover\\:text-white\\/70:hover    { color: rgba(15,23,42,.8); }
+.theme-light .hover\\:text-slate-300:hover    { color: #334155; }
+
+/* ---------- LIGHT: accent text — 400 has no contrast on white, darken ---------- */
+.theme-light .text-blue-400      { color: #1D4ED8; }
+.theme-light .text-blue-300      { color: #1E40AF; }
+.theme-light .text-emerald-400   { color: #047857; }
+.theme-light .text-red-400       { color: #B91C1C; }
+.theme-light .text-amber-400     { color: #B45309; }
+.theme-light .text-purple-400    { color: #6D28D9; }
+.theme-light .text-amber-200     { color: #92400E; }
+.theme-light .hover\\:text-blue-300:hover  { color: #1E40AF; }
+.theme-light .hover\\:text-blue-400:hover  { color: #1D4ED8; }
+.theme-light .hover\\:text-red-400:hover   { color: #B91C1C; }
+
+/* Solid brand buttons keep white text in both themes — override the override */
+.theme-light .bg-blue-700 .text-white,
+.theme-light .bg-blue-700.text-white,
+.theme-light .bg-blue-600.text-white,
+.theme-light .bg-emerald-700.text-white,
+.theme-light .bg-red-700.text-white,
+.theme-light .bg-purple-700.text-white,
+.theme-light .bg-amber-700.text-white { color: #FFFFFF; }
+
+/* ---------- LIGHT: accent tinted surfaces — a touch stronger so they show ---------- */
+.theme-light .bg-blue-700\\/10     { background-color: rgba(29,78,216,.08); }
+.theme-light .bg-blue-700\\/15     { background-color: rgba(29,78,216,.11); }
+.theme-light .bg-blue-700\\/20     { background-color: rgba(29,78,216,.14); }
+.theme-light .bg-emerald-700\\/10  { background-color: rgba(4,120,87,.08); }
+.theme-light .bg-emerald-700\\/15  { background-color: rgba(4,120,87,.11); }
+.theme-light .bg-emerald-700\\/20  { background-color: rgba(4,120,87,.14); }
+.theme-light .bg-red-700\\/10      { background-color: rgba(185,28,28,.08); }
+.theme-light .bg-red-700\\/15      { background-color: rgba(185,28,28,.11); }
+.theme-light .bg-red-700\\/20      { background-color: rgba(185,28,28,.14); }
+.theme-light .bg-amber-700\\/10    { background-color: rgba(180,83,9,.08); }
+.theme-light .bg-amber-700\\/15    { background-color: rgba(180,83,9,.11); }
+.theme-light .bg-amber-700\\/20    { background-color: rgba(180,83,9,.14); }
+.theme-light .bg-purple-700\\/10   { background-color: rgba(109,40,217,.08); }
+.theme-light .bg-purple-700\\/20   { background-color: rgba(109,40,217,.14); }
+
+
+/* ---------- LIGHT: deep-tint alert backgrounds -> pale tints ---------- */
+.theme-light .bg-red-950\\/80     { background-color: #FEF2F2; }
+.theme-light .bg-red-950\\/50     { background-color: #FEF2F2; }
+.theme-light .bg-red-950\\/40     { background-color: #FEF2F2; }
+.theme-light .bg-emerald-950\\/80 { background-color: #ECFDF5; }
+.theme-light .bg-blue-950\\/80    { background-color: #EFF6FF; }
+.theme-light .bg-blue-950\\/40    { background-color: #EFF6FF; }
+.theme-light .bg-amber-950       { background-color: #FFFBEB; }
+.theme-light .bg-amber-950\\/80   { background-color: #FFFBEB; }
+.theme-light .bg-amber-950\\/40   { background-color: #FFFBEB; }
+.theme-light .bg-amber-950\\/30   { background-color: #FFFBEB; }
+
+/* ---------- LIGHT: pale alert text -> dark ---------- */
+.theme-light .text-red-100      { color: #7F1D1D; }
+.theme-light .text-emerald-100  { color: #064E3B; }
+.theme-light .text-blue-100     { color: #1E3A8A; }
+.theme-light .text-blue-200     { color: #1E3A8A; }
+.theme-light .text-amber-100    { color: #78350F; }
+
+/* ---------- LIGHT: solid 600/700 borders read fine, slightly soften ---------- */
+.theme-light .border-blue-700    { border-color: #93C5FD; }
+.theme-light .border-emerald-700 { border-color: #6EE7B7; }
+.theme-light .border-red-700     { border-color: #FCA5A5; }
+.theme-light .border-amber-700   { border-color: #FCD34D; }
+.theme-light .border-purple-700  { border-color: #C4B5FD; }
+
+/* ============================================================================
+   GENERAL POLISH — both themes
+   ========================================================================== */
+
+/* Buttons: colour/border/transform, and a subtle press */
+.nv-root button {
+  transition:
+    background-color 200ms ease-in-out,
+    color            200ms ease-in-out,
+    border-color     200ms ease-in-out,
+    opacity          200ms ease-in-out,
+    transform        150ms ease-in-out,
+    box-shadow       200ms ease-in-out;
+}
+.nv-root button:not(:disabled):active { transform: scale(.985); }
+
+/* Inputs and selects */
+.nv-root input, .nv-root select, .nv-root textarea {
+  transition: border-color 200ms ease-in-out, background-color 200ms ease-in-out, box-shadow 200ms ease-in-out;
+}
+
+/* Links and anchors */
+.nv-root a { transition: color 200ms ease-in-out, opacity 200ms ease-in-out; }
+
+/* Modals: fade + gentle scale on mount */
+@keyframes nvModalIn {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes nvBackdropIn {
+  from { opacity: 0; } to { opacity: 1; }
+}
+.nv-root .fixed.inset-0 { animation: nvBackdropIn 200ms ease-out both; }
+.nv-root .fixed.inset-0 > div { animation: nvModalIn 240ms cubic-bezier(.2,.8,.2,1) both; }
+
+/* Screen changes: soft fade so views don't snap */
+@keyframes nvScreenIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.nv-screen { animation: nvScreenIn 260ms cubic-bezier(.2,.8,.2,1) both; }
+
+/* Alerts and banners slide in */
+@keyframes nvSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.nv-root [role="alert"], .nv-root .nv-banner { animation: nvSlideDown 220ms ease-out both; }
+
+/* Expandable sections (e.g. "How was this calculated?") */
+.nv-root .nv-expand { animation: nvSlideDown 200ms ease-out both; }
+
+/* ============================================================================
+   TOGGLE SWITCH
+   ========================================================================== */
+.nv-toggle {
+  position: relative; display: inline-flex; align-items: center;
+  width: 46px; height: 26px; border-radius: 9999px; padding: 0;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.12);
+  cursor: pointer; flex-shrink: 0;
+  transition: background-color 250ms ease-in-out, border-color 250ms ease-in-out;
+}
+.nv-toggle[aria-checked="true"] { background: #1D4ED8; border-color: #1D4ED8; }
+.nv-toggle:focus-visible { outline: 2px solid #60A5FA; outline-offset: 2px; }
+.nv-toggle .nv-knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px; border-radius: 9999px;
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  transform: translateX(0);
+  transition: transform 250ms cubic-bezier(.4,0,.2,1), background-color 250ms ease-in-out;
+}
+.nv-toggle[aria-checked="true"] .nv-knob { transform: translateX(20px); }
+.theme-light .nv-toggle { background: rgba(15,23,42,.14); border-color: rgba(15,23,42,.18); }
+.theme-light .nv-toggle[aria-checked="true"] { background: #1D4ED8; border-color: #1D4ED8; }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .nv-root *, .nv-root *::before, .nv-root *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+`;
+
+// Accessible sliding toggle. Purely presentational: it reports the change
+// through onChange and never owns the value.
+const ToggleSwitch = ({ checked, onChange, label, disabled=false }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked ? "true" : "false"}
+    aria-label={label}
+    disabled={disabled}
+    onClick={() => !disabled && onChange(!checked)}
+    className={`nv-toggle ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+  >
+    <span className="nv-knob" />
+  </button>
+);
+
 const fmt     = n  => "₦"+Number(n).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtM    = n  => "₦"+(n/1000000).toFixed(1)+"M";
 const fmtDate = d  => { try{return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}catch{return d;}};
@@ -166,7 +426,7 @@ const Banner = ({type,msg,onClose,onAction,actionLabel}) => {
   const s={error:"bg-red-950/80 border-red-600 text-red-100",success:"bg-emerald-950/80 border-emerald-600 text-emerald-100",info:"bg-blue-950/80 border-blue-700 text-blue-100",warning:"bg-amber-950/80 border-amber-600 text-amber-100"};
   const ic={error:<AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0"/>,success:<CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0"/>,info:<Info className="w-4 h-4 text-blue-400 flex-shrink-0"/>,warning:<AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0"/>};
   return(
-    <div className={`flex items-start gap-3 p-3.5 rounded-xl border ${s[type]}`}>
+    <div role="alert" className={`nv-banner flex items-start gap-3 p-3.5 rounded-xl border ${s[type]}`}>
       {ic[type]}
       <div className="flex-1 min-w-0"><p className="text-sm leading-snug">{msg}</p>{onAction&&<button onClick={onAction} className="text-xs font-bold underline mt-1 hover:opacity-80">{actionLabel} →</button>}</div>
       {onClose&&<button onClick={onClose} className="opacity-60 hover:opacity-100 flex-shrink-0"><X className="w-4 h-4"/></button>}
@@ -769,7 +1029,7 @@ const Steps = ({steps,cur}) => (
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
 const Shell = ({children,nav,badge,title,sub}) => (
-  <div className="min-h-screen" style={{background:"linear-gradient(135deg,#0A1628 0%,#0d1f3c 100%)"}}>
+  <div className="min-h-screen" style={{background:"linear-gradient(135deg,var(--nv-grad-a) 0%,var(--nv-grad-b) 100%)",transition:"background 300ms ease-in-out"}}>
     <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
       <button onClick={()=>nav(V.LAND)} className="flex items-center gap-2">
         <Star className="w-4 h-4 text-blue-400"/><span className="text-white font-black">Noor<span className="text-blue-400">Invest</span></span>
@@ -833,7 +1093,7 @@ const TCModal = ({onClose,onAccept,accepted,publishedTNC}) => {
 // ── Investor Portal Screens ──────────────────────────────────────────────────
 // ── Screens ───────────────────────────────────────────────────────────────────
 const Landing = ({nav}) => (
-  <div className="min-h-screen flex flex-col" style={{background:"linear-gradient(135deg,#0A1628 0%,#0d1f3c 60%,#071020 100%)"}}>
+  <div className="min-h-screen flex flex-col" style={{background:"linear-gradient(135deg,var(--nv-grad-a) 0%,var(--nv-grad-b) 60%,var(--nv-grad-c) 100%)",transition:"background 300ms ease-in-out"}}>
     <nav className="flex items-center justify-between px-6 py-5">
       <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-blue-700/20 border border-blue-700/30 flex items-center justify-center"><Star className="w-4 h-4 text-blue-400"/></div><span className="text-white font-black text-lg">Noor<span className="text-blue-400">Invest</span></span></div>
       <div className="flex items-center gap-3">
@@ -1525,7 +1785,7 @@ const HistoryScreen = ({investor, cycles:liveCycles}) => {
                   How was this calculated?
                 </button>
                 {showFormula&&(
-                  <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3">
+                  <div className="nv-expand bg-slate-900/60 border border-white/5 rounded-xl p-3">
                     <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mb-1.5">Formula (backend computed)</p>
                     <p className="text-[11px] text-white/50 leading-relaxed font-mono">(₦{(investor.capital/1000).toFixed(0)}k ÷ ₦{(c.pool/1000).toFixed(0)}k) × {fmt(investor_profit)} = {fmt(investor.profit)}</p>
                     <p className="text-[10px] text-white/25 mt-1">Computed by the backend system at cycle close. Read-only.</p>
@@ -2183,6 +2443,7 @@ const InvestScreen = ({waitingList,setWaitingList,investor,setPays,cycles:liveCy
 };
 
 const ProfileScreen = ({investor,setInvestor}) => {
+  const {theme,setTheme}=useTheme();
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({
     ...investor,
@@ -2342,6 +2603,14 @@ const ProfileScreen = ({investor,setInvestor}) => {
       </Card>
 
       {editing&&<Banner type="warning" msg="Changes to bank details take effect on the next profit distribution. Contact your admin for urgent changes."/>}
+
+      <Card className="space-y-4">
+        <Label>Appearance</Label>
+        <div className="flex items-center justify-between">
+          <div><p className="text-sm font-bold text-white">{theme==='light'?"Light mode":"Dark mode"}</p><p className="text-xs text-white/40">Remembered on this device.</p></div>
+          <ToggleSwitch checked={theme==='light'} onChange={v=>setTheme(v?'light':'dark')} label="Light mode"/>
+        </div>
+      </Card>
 
       <Card className="space-y-4">
         <div className="flex items-center justify-between">
@@ -2716,7 +2985,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
 
   // Issue 3: Show loading screen until real data arrives
   if(!investorLoaded) return(
-    <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,#0A1628 0%,#0d1f3c 100%)"}}>
+    <div className="min-h-screen flex items-center justify-center" style={{background:"linear-gradient(135deg,var(--nv-grad-a) 0%,var(--nv-grad-b) 100%)",transition:"background 300ms ease-in-out"}}>
       <div className="flex flex-col items-center gap-4">
         <Loader className="w-10 h-10 text-blue-400 animate-spin"/>
         <p className="text-white/40 text-sm font-medium">Loading your account…</p>
@@ -2724,7 +2993,7 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
     </div>
   );
   return(
-    <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
+    <div className="min-h-screen" style={{background:"linear-gradient(160deg,var(--nv-grad-a) 0%,var(--nv-grad-b) 100%)",transition:"background 300ms ease-in-out"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
         <div className="flex items-center gap-3">
           {view!==IV.HOME&&<button onClick={()=>nav(IV.HOME)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:border-white/20"><span className="text-white/60 text-sm font-bold">←</span></button>}
@@ -4537,16 +4806,22 @@ const AnalyticsScreen=({cycles,investors})=>{
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
 const SettingsScreen=({nav})=>{
   const [approvalQueue,setApprovalQueue]=useState(false);
+  const {theme,setTheme}=useTheme();
   return (
     <div className="space-y-5 pb-24">
       <h2 className="text-xl font-black text-white">Settings</h2>
       <Card className="space-y-4">
+        <Label>Appearance</Label>
+        <div className="flex items-center justify-between">
+          <div><p className="text-sm font-bold text-white">{theme==='light'?"Light mode":"Dark mode"}</p><p className="text-xs text-white/40">Your choice is remembered on this device.</p></div>
+          <ToggleSwitch checked={theme==='light'} onChange={v=>setTheme(v?'light':'dark')} label="Light mode"/>
+        </div>
+      </Card>
+      <Card className="space-y-4">
         <Label>Registration Approval Queue</Label>
         <div className="flex items-center justify-between">
           <div><p className="text-sm font-bold text-white">{approvalQueue?"Enabled":"Disabled"}</p><p className="text-xs text-white/40">{approvalQueue?"New registrations require admin approval before access":"New investors get immediate access after registering"}</p></div>
-          <button onClick={()=>setApprovalQueue(!approvalQueue)} className={`w-12 h-6 rounded-full transition-all flex items-center ${approvalQueue?"bg-blue-600 justify-end":"bg-white/20 justify-start"}`}>
-            <div className="w-5 h-5 rounded-full bg-white mx-0.5 shadow"/>
-          </button>
+          <ToggleSwitch checked={approvalQueue} onChange={setApprovalQueue} label="Registration approval queue"/>
         </div>
         {approvalQueue&&<Banner type="warning" msg="Approval queue is ON. New registrations will wait for your approval before accessing the platform."/>}
       </Card>
@@ -4910,7 +5185,7 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
   const backTarget={[VIEWS.CREATE_CYCLE]:VIEWS.CYCLES,[VIEWS.EDIT_CYCLE]:VIEWS.CYCLES,[VIEWS.ADD_MEMBERS]:VIEWS.CYCLES,[VIEWS.PROFIT_CSV]:VIEWS.SETTINGS,[VIEWS.PERFORMANCE_PDF]:VIEWS.SETTINGS,[VIEWS.THRESHOLDS]:VIEWS.SETTINGS,[VIEWS.TNC]:VIEWS.SETTINGS,[VIEWS.ANALYTICS]:VIEWS.SETTINGS};
   const titles={[VIEWS.DASH]:null,[VIEWS.CYCLES]:"Fund Cycles",[VIEWS.MEMBERS]:"Members",[VIEWS.APPROVALS]:"Approvals",[VIEWS.MARKET]:"Secondary Market",[VIEWS.SETTINGS]:"Settings",[VIEWS.CREATE_CYCLE]:"New Cycle",[VIEWS.EDIT_CYCLE]:"Edit Cycle",[VIEWS.ADD_MEMBERS]:"Add Members",[VIEWS.PROFIT_CSV]:"Profit CSV Upload",[VIEWS.PERFORMANCE_PDF]:"Performance Reports",[VIEWS.THRESHOLDS]:"Withdrawal Thresholds",[VIEWS.TNC]:"Terms & Conditions",[VIEWS.ANALYTICS]:"Smart Analytics"};
   return (
-    <div className="min-h-screen" style={{background:"linear-gradient(160deg,#0A1628 0%,#0d1f3c 100%)"}}>
+    <div className="min-h-screen" style={{background:"linear-gradient(160deg,var(--nv-grad-a) 0%,var(--nv-grad-b) 100%)",transition:"background 300ms ease-in-out"}}>
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5">
         <div className="flex items-center gap-3">
           {view!==VIEWS.DASH&&<button onClick={()=>nav(backTarget[view]||VIEWS.DASH)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:border-white/20"><span className="text-white/60 text-sm font-bold">←</span></button>}
@@ -4946,6 +5221,23 @@ const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,
 export default function NoorInvest() {
   const [view,setView]=useState(V.LAND);
   const [vd,setVd]=useState(null);
+
+  // ── Theme: read once on mount, persist on change, animate the switch ──────
+  const [theme,setThemeRaw]=useState(()=>{
+    try { const t=localStorage.getItem(THEME_STORAGE_KEY); return t==='light'?'light':'dark'; }
+    catch(e){ console.error('theme/localStorage.getItem:', e); return 'dark'; }
+  });
+  const [themeSwitching,setThemeSwitching]=useState(false);
+  const setTheme=(next)=>{
+    const t=next==='light'?'light':'dark';
+    // The .theme-switching class enables a universal colour transition ONLY
+    // while the swap happens, so it never interferes with normal interactions.
+    setThemeSwitching(true);
+    setThemeRaw(t);
+    try { localStorage.setItem(THEME_STORAGE_KEY,t); }
+    catch(e){ console.error('theme/localStorage.setItem:', e); }
+    setTimeout(()=>setThemeSwitching(false),350);
+  };
 
   // 5A: Auto-logout after 15 minutes of inactivity
   const [showIdleWarning,setShowIdleWarning]=useState(false);
@@ -5042,16 +5334,22 @@ export default function NoorInvest() {
     [V.IDASH]:<InvestorPortal user={vd} slots={slots} setSlots={setSlots} setPays={setPays} setWds={setWds} cycles={cycles} onSignOut={()=>nav(V.LAND)}/>,
   };
   return (
-    <div className="min-h-screen bg-slate-950 flex items-start justify-center">
-      <div className="w-full max-w-md min-h-screen relative">
-        {showIdleWarning&&(view===V.IDASH||view===V.ADMIN)&&(
-          <div className="fixed top-0 z-50 w-full max-w-md p-3 bg-amber-950/95 border-b border-amber-600 flex items-center justify-between gap-3">
-            <p className="text-xs text-amber-200 flex-1">You've been inactive. You'll be signed out in 2 minutes.</p>
-            <button onClick={()=>resetIdle.current?.()} className="text-xs font-bold text-amber-400 border border-amber-600 px-2.5 py-1 rounded-lg hover:bg-amber-900">Stay Signed In</button>
+    <ThemeContext.Provider value={{theme,setTheme}}>
+      <style>{THEME_CSS}</style>
+      <div className={`nv-root min-h-screen bg-slate-950 flex items-start justify-center ${theme==='light'?'theme-light':''} ${themeSwitching?'theme-switching':''}`}>
+        <div className="w-full max-w-md min-h-screen relative">
+          {showIdleWarning&&(view===V.IDASH||view===V.ADMIN)&&(
+            <div className="fixed top-0 z-50 w-full max-w-md p-3 bg-amber-950/95 border-b border-amber-600 flex items-center justify-between gap-3 nv-banner">
+              <p className="text-xs text-amber-200 flex-1">You've been inactive. You'll be signed out in 2 minutes.</p>
+              <button onClick={()=>resetIdle.current?.()} className="text-xs font-bold text-amber-400 border border-amber-600 px-2.5 py-1 rounded-lg hover:bg-amber-900">Stay Signed In</button>
+            </div>
+          )}
+          {/* key={view} remounts on screen change so the nv-screen fade plays each time */}
+          <div key={view} className="nv-screen">
+            {screens[view]||<Landing nav={nav}/>}
           </div>
-        )}
-        {screens[view]||<Landing nav={nav}/>}
+        </div>
       </div>
-    </div>
+    </ThemeContext.Provider>
   );
 }
