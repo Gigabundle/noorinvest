@@ -63,6 +63,21 @@ const INIT_TNC_HISTORY = []; // published versions accumulate here, never edited
 // Dark is the existing design and needs no rules. .theme-light on the root
 // wrapper overrides the neutral white/slate scale. See THEME_CSS for the full
 // override table. Theme choice persists in localStorage under noorinvest_theme.
+// ── Browser history integration ───────────────────────────────────────────────
+// The app switches screens in React state, so the phone's back gesture used to
+// leave the site entirely. Each screen change now records a history entry
+// {nv:1, root, sub}; a popstate handler in each navigation layer restores it.
+// Always window.history — some components have a local variable named history.
+const navStateIs=(root,sub)=>{ const s=window.history.state; return !!(s&&s.nv&&s.root===root&&(s.sub??null)===(sub??null)); };
+const pushNav=(root,sub=null)=>{
+  try { if(!navStateIs(root,sub)) window.history.pushState({nv:1,root,sub},''); }
+  catch(e){ console.error('pushNav failed:',e); }
+};
+const replaceNav=(root,sub=null)=>{
+  try { window.history.replaceState({nv:1,root,sub},''); }
+  catch(e){ console.error('replaceNav failed:',e); }
+};
+
 const THEME_STORAGE_KEY = 'noorinvest_theme';
 const ThemeContext = createContext({ theme: 'dark', setTheme: () => {} });
 const useTheme = () => useContext(ThemeContext);
@@ -2971,7 +2986,25 @@ const InvestorPortal = ({user,onSignOut,slots,setSlots,setPays,setWds,cycles}) =
   const nav=v=>{
     setView(v);
     try { localStorage.setItem('noorinvest_subview',JSON.stringify(v)); } catch(e){ console.error('nav/localStorage.setItem(noorinvest_subview):', e); }
+    pushNav(V.IDASH,v);
+    window.scrollTo(0,0);
   };
+
+  // Phone back gesture: restore the investor screen recorded in history.
+  useEffect(()=>{
+    replaceNav(V.IDASH,view);   // current entry reflects the screen shown on mount
+    const onPop=e=>{
+      const st=e.state;
+      if(!st||!st.nv||st.root!==V.IDASH) return;
+      const sub=st.sub||IV.HOME;
+      setView(sub);
+      try { localStorage.setItem('noorinvest_subview',JSON.stringify(sub)); } catch(err){ console.error('popstate/subview:',err); }
+      window.scrollTo(0,0);
+    };
+    window.addEventListener('popstate',onPop);
+    return ()=>window.removeEventListener('popstate',onPop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   const markRead=()=>{
     setNotifs(ns=>ns.map(n=>({...n,read:true})));
@@ -5111,7 +5144,23 @@ const AdminMarketScreen=({slots,setSlots,investors,cycles:cyclesProp,pays,setPay
 const AdminPanel=({tncDraft,setTncDraft,tncHistory,setTncHistory,slots,setSlots,pays,setPays,wds,setWds,cycles,setCycles,onSignOut})=>{
   const savedAdminView = (() => { try { return localStorage.getItem('noorinvest_admin_view')||VIEWS.DASH; } catch { return VIEWS.DASH; } })();
   const [view,setView]=useState(savedAdminView);
-  const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch(e){ console.error('nav/localStorage.setItem(noorinvest_admin_view):', e); }; };
+  const nav=v=>{ setView(v); try { localStorage.setItem('noorinvest_admin_view',v); } catch(e){ console.error('nav/localStorage.setItem(noorinvest_admin_view):', e); }; pushNav(V.ADMIN,v); window.scrollTo(0,0); };
+
+  // Phone back gesture: restore the admin screen recorded in history.
+  useEffect(()=>{
+    replaceNav(V.ADMIN,view);
+    const onPop=e=>{
+      const st=e.state;
+      if(!st||!st.nv||st.root!==V.ADMIN) return;
+      const sub=st.sub||VIEWS.DASH;
+      setView(sub);
+      try { localStorage.setItem('noorinvest_admin_view',sub); } catch(err){ console.error('popstate/admin_view:',err); }
+      window.scrollTo(0,0);
+    };
+    window.addEventListener('popstate',onPop);
+    return ()=>window.removeEventListener('popstate',onPop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
   const [investors,setInvestors]=useState([]);
   const [editTarget,setEditTarget]=useState(null);
   const [addTarget,setAddTarget]=useState(null);
@@ -5310,6 +5359,7 @@ export default function NoorInvest() {
     const newVd=user||data;
     setVd(newVd);
     setView(v);
+    pushNav(v,null);
     window.scrollTo(0,0);
     if(v===V.IDASH||v===V.ADMIN){
       try { localStorage.setItem('noorinvest_session',JSON.stringify({view:v,vd:newVd})); }
@@ -5321,6 +5371,36 @@ export default function NoorInvest() {
       try { localStorage.removeItem('noorinvest_admin_view'); } catch(e){ console.error('newVd/localStorage.removeItem(noorinvest_admin_view):', e); }
     }
   };
+
+  // ── Phone back gesture at the top level ──────────────────────────────────
+  //  * Signed in: never step back onto landing / sign-in screens. Those entries
+  //    are skipped, so back from the dashboard home leaves the site.
+  //  * Signed out: never reopen a dashboard. Those entries are skipped too.
+  const viewRef=useRef(view);
+  useEffect(()=>{ viewRef.current=view; },[view]);
+  useEffect(()=>{
+    if(!(window.history.state&&window.history.state.nv)) replaceNav(viewRef.current,null);
+    const isDash=v=>v===V.IDASH||v===V.ADMIN;
+    const onPop=e=>{
+      const st=e.state;
+      if(!st||!st.nv) return;
+      const cur=viewRef.current;
+      if(isDash(cur)){
+        if(st.root!==cur){ window.history.back(); }   // skip pre-login / other-portal entries
+        return;                                        // same portal: its own handler restores the sub-screen
+      }
+      if(isDash(st.root)){
+        let saved=null;
+        try { saved=JSON.parse(localStorage.getItem('noorinvest_session')||'null'); } catch(err){ console.error('popstate/session:',err); }
+        if(!saved||saved.view!==st.root){ window.history.back(); return; }  // signed out: don't reopen
+        setVd(saved.vd); setView(st.root); window.scrollTo(0,0); return;
+      }
+      setView(st.root); window.scrollTo(0,0);
+    };
+    window.addEventListener('popstate',onPop);
+    return ()=>window.removeEventListener('popstate',onPop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   const screens={
     [V.LAND]:<Landing nav={nav}/>,
